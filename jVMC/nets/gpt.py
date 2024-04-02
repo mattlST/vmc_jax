@@ -18,7 +18,8 @@ from flax.linen import (
 )
 from jax import Array, vmap, debug
 from jax.config import config  # type: ignore
-from jax.numpy import arange, expand_dims, full, int64, take_along_axis, zeros, roll, log, ones
+from jax.numpy import arange, expand_dims, full, int64, take_along_axis, zeros, roll, log, ones, pi
+from jax.nn import elu
 from jax.random import KeyArray, categorical, split
 from jVMC.global_defs import tReal
 
@@ -80,7 +81,6 @@ class GPT(Module):
     embeddingDim: int
     depth: int
     nHeads: int
-    OutputScale: float = 1.
     logProbFactor: float = 0.5
     paramDType: type = tReal
     spinDType: type = int64
@@ -100,8 +100,6 @@ class GPT(Module):
             The log amplitude of the wave function.
         """
 
-        # debug.print("{x}",x=s)
-
         if not self.embeddingDim % self.nHeads == 0:
             raise AttributeError(
                 "The embedding dimension should be divisible by the number of"
@@ -112,12 +110,13 @@ class GPT(Module):
                 "Input length should be equal to context length, L."
             )
         # debug.print("{x}",x=s.shape)
-        y = Embed(self.localHilDim, self.embeddingDim, param_dtype=self.paramDType)(s[:-1])
+        y = Embed(self.localHilDim, self.embeddingDim, param_dtype=self.paramDType)(s) # [:-1])
         p = self.variable(
             "params",
             "positional_embeddings",
             zeros, # jbr: this is the positional embedding, but it is all zeros
-            (self.L-1, self.embeddingDim),
+            # (self.L-1, self.embeddingDim),
+            (self.L, self.embeddingDim),
             self.paramDType,
         ).value
         # jbr: adding the positional encoding
@@ -130,15 +129,20 @@ class GPT(Module):
                 for _ in range(self.depth)
             ]
         )(y)
-        y = Dense(2, param_dtype=self.paramDType)(y)
+        # splice off the last element of the sequence and use it as the phase
+        phase = y[-1]
+        # continue with calulating the log amplitude
+        y = vmap(Dense(self.localHilDim, param_dtype=self.paramDType))(y[:-1])
+        # return for wave function
         if returnLogAmp:
-            # debug.print("{x}",x=y.shape)
-            return self.OutputScale * (
+            return (
                 (take_along_axis(log_softmax(y), expand_dims(roll(s,-1)[:-1], -1), axis=-1)
                 .sum(axis=-2)
-                .squeeze(-1)-log(self.localHilDim))
+                .squeeze(-1)-log(2.))
                 * self.logProbFactor
-            )
+                # jbr: this is the phase
+            ) + 1.j * pi * elu( Dense(1,param_dtype=self.paramDType)(phase) ).squeeze(-1)
+        # returns for sampling
         return y
 
     def sample(self, numSamples: int, key: KeyArray) -> Array:
@@ -173,5 +177,5 @@ class GPT(Module):
              split_rngs={'params': False})
     def _scanning_fn(self, s: Array, x: Tuple[KeyArray, Array]) -> Tuple[Array, None]:
         logits = self(s, False)
-        choice = categorical(x[0], logits[x[1]].real)
+        choice = categorical(x[0], logits[x[1]])
         return s.at[x[1]].set(choice), None
