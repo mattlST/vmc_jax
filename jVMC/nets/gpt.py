@@ -16,9 +16,9 @@ from flax.linen import (
     make_causal_mask,
     scan,
 )
-from jax import Array, vmap, debug
+from jax import Array, vmap, debug, jit
 from jax.config import config  # type: ignore
-from jax.numpy import arange, expand_dims, full, int64, take_along_axis, zeros, roll, log, ones, pi
+from jax.numpy import arange, expand_dims, full, int64, take_along_axis, zeros, roll, log, ones, pi, sin
 from jax.nn import elu
 from jax.random import KeyArray, categorical, split
 from jVMC.global_defs import tReal
@@ -46,7 +46,8 @@ class _TransformerBlock(Module):
         )
         x = LayerNorm(param_dtype=self.paramDType)(x)
         x = x + Sequential(
-            [
+            [   # the factor 4 is a commen choice of ratio between
+                # the hidden layer and the embedding layer
                 Dense(self.embeddingDim * 4, param_dtype=self.paramDType),
                 gelu,
                 Dense(self.embeddingDim, param_dtype=self.paramDType),
@@ -56,7 +57,7 @@ class _TransformerBlock(Module):
         return x
 
 
-class GPT(Module):
+class ComplexGPT(Module):
     """GPT model for autoregressive decoding of neural quantum states.
 
     This model outputs the log amplitude of a wave function which in turn is
@@ -97,7 +98,7 @@ class GPT(Module):
                 configuration (default: True).
 
         Returns:
-            The log amplitude of the wave function.
+            The log amplitude of the wave function and the complex phase.
         """
 
         if not self.embeddingDim % self.nHeads == 0:
@@ -140,8 +141,8 @@ class GPT(Module):
                 .sum(axis=-2)
                 .squeeze(-1)-log(2.))
                 * self.logProbFactor
-                # jbr: this is the phase
-            ) + 1.j * pi * elu( Dense(1,param_dtype=self.paramDType)(phase) ).squeeze(-1)
+                # adding the phase
+            ) + 1.j * ( Dense(1,param_dtype=self.paramDType)(phase) ).squeeze(-1)
         # returns for sampling
         return y
 
@@ -178,4 +179,126 @@ class GPT(Module):
     def _scanning_fn(self, s: Array, x: Tuple[KeyArray, Array]) -> Tuple[Array, None]:
         logits = self(s, False)
         choice = categorical(x[0], logits[x[1]])
+        return s.at[x[1]].set(choice), None
+
+
+class GPT(Module):
+    """GPT model for autoregressive decoding of neural quantum states.
+
+    This model outputs the log amplitude of a wave function which in turn is
+    a log probability density. It contains a ``sample`` method that peforms
+    autorgressive sampling.
+
+    Initialization arguments:
+        * ``L``: Length of the spin chain.
+        * ``embeddingDim``: Embedding dimension.
+        * ``depth``: Number of transformer blocks.
+        * ``nHeads``: Number of attention heads.
+        * ``logProbFactor``: Factor defining how output and associated sample
+                probability are related. 0.5 for pure states and 1.0 for POVMs
+                (default: 0.5).
+        * ``paramDType``: Data type of the model parameters
+                (default: ``jVMC.global_defs.tReal``).
+        * ``spinDType``: Data type of the spin configurations
+                (default: ``jax.numpy.int64``).
+    """
+
+    L: int
+    embeddingDim: int
+    depth: int
+    nHeads: int
+    OutputScale: float = 1.
+    logProbFactor: float = 0.5
+    paramDType: type = tReal
+    spinDType: type = int64
+    # jbr
+    localHilDim: int = 2
+
+    @compact
+    def __call__(self, s: Array, returnLogAmp: bool = True) -> Array:
+        """Forward pass of the model.
+
+        Args:
+            * ``s``: A spin configuration.
+            * ``returnLogAmp``: Whether to return the log amplitude of the spin
+                configuration (default: True).
+
+        Returns:
+            The log amplitude of the wave function.
+        """
+
+        # debug.print("{x}",x=s)
+
+        if not self.embeddingDim % self.nHeads == 0:
+            raise AttributeError(
+                "The embedding dimension should be divisible by the number of"
+                " heads."
+            )
+        if not s.shape[-1] == self.L:
+            raise ValueError(
+                "Input length should be equal to context length, L."
+            )
+        # debug.print("{x}",x=s.shape)
+        y = Embed(self.localHilDim, self.embeddingDim, param_dtype=self.paramDType)(s[:-1])
+        p = self.variable(
+            "params",
+            "positional_embeddings",
+            zeros, # jbr: this is the positional embedding, but it is all zeros
+            (self.L-1, self.embeddingDim),
+            self.paramDType,
+        ).value
+        # jbr: adding the positional encoding
+        y = y + p # jbr: this makes no sense, p is all zeoros
+        y = Sequential(
+            [
+                _TransformerBlock(
+                    self.embeddingDim, self.nHeads, self.paramDType
+                )
+                for _ in range(self.depth)
+            ]
+        )(y)
+        y = Dense(2, param_dtype=self.paramDType)(y)
+        if returnLogAmp:
+            # debug.print("{x}",x=y.shape)
+            return self.OutputScale * (
+                (take_along_axis(log_softmax(y), expand_dims(roll(s,-1)[:-1], -1), axis=-1)
+                .sum(axis=-2)
+                .squeeze(-1)-log(self.localHilDim))
+                * self.logProbFactor
+            )
+        return y
+
+    def sample(self, numSamples: int, key: KeyArray) -> Array:
+        """Autoregressively sample a spin configuration.
+
+        Args:
+            * ``numSamples``: The number of configurations to generate.
+            * ``key``: JAX random key.
+
+        Returns:
+            A batch of spin configurations.
+        """
+
+        def generate_sample(key):
+            # we only need 
+            keys = split(key, self.L)
+            # jax.numpy.full(shape, fill_value, dtype=None, *, device=None)[source]
+            s = full((self.L,), -1, self.spinDType)
+            # flip 50/50 coin for first spin
+            choice = categorical(keys[0], 0.5*ones(2))
+            # setting the zero choice
+            s = s.at[0].set(choice)
+            # had to modify because of Jax version?
+            s, _ = self._scanning_fn(s, (keys[1:], arange(1,self.L)))
+            return s
+
+        keys = split(key, numSamples)
+        return vmap(generate_sample)(keys)
+
+    @partial(scan,
+             variable_broadcast='params',
+             split_rngs={'params': False})
+    def _scanning_fn(self, s: Array, x: Tuple[KeyArray, Array]) -> Tuple[Array, None]:
+        logits = self(s, False)
+        choice = categorical(x[0], logits[x[1]].real)
         return s.at[x[1]].set(choice), None
