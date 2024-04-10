@@ -18,7 +18,7 @@ from flax.linen import (
 )
 from jax import Array, vmap, debug, jit
 from jax.config import config  # type: ignore
-from jax.numpy import arange, expand_dims, full, int64, take_along_axis, zeros, roll, log, ones, pi, sin
+from jax.numpy import arange, expand_dims, full, int64, take_along_axis, zeros, roll, log, ones, pi, sin, log
 from jax.nn import elu
 from jax.random import KeyArray, categorical, split
 from jVMC.global_defs import tReal
@@ -132,17 +132,19 @@ class ComplexGPT(Module):
         )(y)
         # splice off the last element of the sequence and use it as the phase
         phase = y[-1]
+        phase_act = lambda x: 0.9 * sin(2.*pi*x) + 2.*pi*x
         # continue with calulating the log amplitude
-        y = vmap(Dense(self.localHilDim, param_dtype=self.paramDType))(y[:-1])
+        y = Dense(self.localHilDim, param_dtype=self.paramDType)(y[:-1])
+        # normalizing the wave function
+        y = log_softmax(y) * self.logProbFactor
         # return for wave function
         if returnLogAmp:
             return (
-                (take_along_axis(log_softmax(y), expand_dims(roll(s,-1)[:-1], -1), axis=-1)
+                (take_along_axis(y, expand_dims(roll(s,-1)[:-1], -1), axis=-1)
                 .sum(axis=-2)
                 .squeeze(-1)-log(2.))
-                * self.logProbFactor
                 # adding the phase
-            ) + 1.j * ( Dense(1,param_dtype=self.paramDType)(phase) ).squeeze(-1)
+            ) + 1.j * phase_act( Dense(1,param_dtype=self.paramDType)(phase) ).squeeze(-1)
         # returns for sampling
         return y
 
@@ -258,13 +260,13 @@ class GPT(Module):
             ]
         )(y)
         y = Dense(2, param_dtype=self.paramDType)(y)
+        # normalize the wave function
+        y = log_softmax(y) * self.logProbFactor
         if returnLogAmp:
-            # debug.print("{x}",x=y.shape)
             return self.OutputScale * (
-                (take_along_axis(log_softmax(y), expand_dims(roll(s,-1)[:-1], -1), axis=-1)
+                (take_along_axis(y, expand_dims(roll(s,-1)[:-1], -1), axis=-1)
                 .sum(axis=-2)
                 .squeeze(-1)-log(self.localHilDim))
-                * self.logProbFactor
             )
         return y
 
