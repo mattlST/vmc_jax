@@ -41,6 +41,9 @@ class NaturalGradient:
         self.diagonalShift = diagonalShift
         self.diagonalizeOnDevice = diagonalizeOnDevice
 
+        self.jitted_inv = jax.jit(jnp.linalg.inv)
+        self.jitted_dot = jax.jit(jnp.dot)
+
     def _transform_to_eigenbasis(self, S, F):
         
         if self.diagonalizeOnDevice:
@@ -57,7 +60,7 @@ class NaturalGradient:
         self.VtF = jnp.dot(jnp.transpose(jnp.conj(self.V)), F)
 
 
-    def _get_snr(self, F, WFgrad,**kwargs):
+    def NatGrad(self, F, psi_grad, trivial = True, **kwargs):
         """
         Compute the Natural gradient update as described by 
         Schmitt in https://doi.org/10.1103/PhysRevLett.125.100503
@@ -72,22 +75,28 @@ class NaturalGradient:
             * Natural gadient update
         """
         # Get TDVP equation from MC data
-        S = WFgrad.covar().real
+        S = psi_grad.covar().real 
+        # compute the natural gradient trivially
+        if trivial: 
+            S = self.jitted_inv(S + self.diagonalShift * jnp.eye(S.shape[-1]))
+            return self.jitted_dot(S, F)
 
         # Transform TDVP equation to eigenbasis and compute SNR
         self._transform_to_eigenbasis(S, F) #, Fdata)
 
         if "ObsLoc" in kwargs:
-            EO = WFgrad.covar_data(kwargs["ObsLoc"]).transform(linearFun = jnp.transpose(jnp.conj(self.V)))
+            EO = psi_grad.covar_data(kwargs["ObsLoc"]).transform(linearFun = jnp.transpose(jnp.conj(self.V)))
             self.rhoVar = EO.var().ravel()
 
             # computing the signal to noise ratio of the F vector
             self.snr = jnp.sqrt(jnp.abs(mpi.globNumSamples * (jnp.conj(self.VtF) * self.VtF).squeeze(-1) / self.rhoVar)).ravel()
 
         # Discard eigenvalues below numerical precision
-        self.invEv = jnp.where(jnp.abs(self.ev / (self.ev[-1])) > 1e-14, 1. / (self.ev + self.diagonalShift * np.ones_like(self.ev)), 0.)
+        self.invEv = jnp.where(jnp.abs(self.ev / (self.ev[-1])) > 1e-14, 1. / self.ev, 0.)
 
         residual = 1.0
+        regularizer = 1.0
+        pinvEv = self.invEv * regularizer
         cutoff = 1e-2
         F_norm = jnp.linalg.norm(F)
         while residual > self.pinvTol and cutoff > self.pinvCutoff:
@@ -103,5 +112,4 @@ class NaturalGradient:
 
             residual = jnp.linalg.norm((pinvEv * self.ev - jnp.ones_like(pinvEv)) * self.VtF) / F_norm
 
-        update = jnp.real(jnp.dot(self.V, (pinvEv * self.VtF.reshape(pinvEv.shape))))
-        return update
+        return jnp.dot(self.V, (pinvEv * self.VtF.reshape(pinvEv.shape)))

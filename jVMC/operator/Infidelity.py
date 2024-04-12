@@ -141,7 +141,7 @@ class Infidelity(op.Operator):
 
         Returns:
             * :math:`F^\\chi_{\\rm loc}(s)` for each configuration :math:`s`.
-            * :math:`F^\\chi`    
+            * :math:`O`    
         """
 
         # compute the gradient throught the covariance
@@ -175,7 +175,7 @@ class Infidelity(op.Operator):
                 FlocCV = SampledObs(self.psi_FlocCV, psi_p)
                 grad -= self.CVc * 2. * grads.covar(FlocCV)*self.Exp_chi_FlocCV
 
-        return -1. * grad.real
+        return -1. * grad.real, grads
 
     def compile(self):
         """This function computes ratios of neural quantum states :math:`\\frac{\\chi(s)}{\\psi(s)}`. More specifically it implements
