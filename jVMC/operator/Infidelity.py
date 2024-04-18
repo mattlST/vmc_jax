@@ -324,7 +324,7 @@ class Infidelity(op.Operator):
 
         Returns:
             * :math:`F^\\chi_{\\rm loc}(s)` for each configuration :math:`s`.
-            * :math:`O`    
+            * :math:`O_k(s)` for each configuration :math:`s` as a SampledObs object.
         """
 
         # compute the gradient throught the covariance
@@ -340,22 +340,22 @@ class Infidelity(op.Operator):
 
             psi_Fgrads = SampledObs(Opsi.real * self.psi_Floc.reshape(*self.psi_Floc.shape,1), psi_p)
             corr_grad_plus = psi_Fgrads.mean().real * self.Exp_chi_Floc.real
-
-            grad += (corr_grad_minus.reshape(grad.shape) - corr_grad_plus.reshape(grad.shape))
+            corr_grad = (corr_grad_minus.reshape(grad.shape) - corr_grad_plus.reshape(grad.shape))
+            grad += corr_grad
 
         # gradient with CV
-        if getCVgrad:
+        if getCVgrad and self.getCV:
             # trivial contribution
             FlocCV = SampledObs(self.psi_FlocCV, psi_p)
-            gradCV = self.CVc * 2. * grads.covar(FlocCV)*self.Exp_chi_FlocCV
+            gradCV = grads.covar(FlocCV)*self.Exp_chi_FlocCV
             # additional correction
-            # if True:
-            chi_FgradsCV = SampledObs(psi.gradients(self.chi_s).real * self.chi_FlocCV.reshape(*self.chi_FlocCV.shape,1).real, self.chi_p) 
-            corr_grad_minus = chi_FgradsCV.mean().real * mpi.global_mean(self.psi_FlocCV.real,psi_p)
-            psi_Fgrads = SampledObs(Opsi.real * self.psi_FlocCV.reshape(*self.psi_FlocCV.shape,1), psi_p)
-            corr_grad_plus = psi_Fgrads.mean().real * self.Exp_chi_FlocCV.real
-            if corrections2: gradCV += self.CVc * 2. * (corr_grad_minus.reshape(grad.shape) - corr_grad_plus.reshape(grad.shape))
-            grad -= gradCV
+            if corrections2: 
+                chi_FgradsCV = SampledObs(psi.gradients(self.chi_s).real * self.chi_FlocCV.reshape(*self.chi_FlocCV.shape,1).real, self.chi_p) 
+                corr_grad_minus = chi_FgradsCV.mean().real * mpi.global_mean(self.psi_FlocCV.real,psi_p)
+                psi_Fgrads = SampledObs(Opsi.real * self.psi_FlocCV.reshape(*self.psi_FlocCV.shape,1), psi_p)
+                corr_grad_plus = psi_Fgrads.mean().real * self.Exp_chi_FlocCV.real
+                gradCV +=  (corr_grad_minus.reshape(grad.shape) - corr_grad_plus.reshape(grad.shape))
+            grad -= self.CVc * 2. * gradCV
 
         return -1. * (grad).real, grads
         
