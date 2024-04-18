@@ -144,7 +144,7 @@ class ComplexGPT(Module):
                 .sum(axis=-2)
                 .squeeze(-1)-log(2.))
                 # adding the phase
-            ) + 1.j * phase_act( Dense(1,param_dtype=self.paramDType)(phase) ).squeeze(-1)
+            ) + 1.j * ( Dense(1,param_dtype=self.paramDType)(phase) ).squeeze(-1)
         # returns for sampling
         return y
 
@@ -165,6 +165,7 @@ class ComplexGPT(Module):
             # jax.numpy.full(shape, fill_value, dtype=None, *, device=None)[source]
             s = full((self.L,), -1, self.spinDType)
             # flip 50/50 coin for first spin
+            # TODO make this learningable
             choice = categorical(keys[0], 0.5*ones(2))
             # setting the zero choice
             s = s.at[0].set(choice)
