@@ -60,7 +60,7 @@ class NaturalGradient:
         self.VtF = jnp.dot(jnp.transpose(jnp.conj(self.V)), F)
 
 
-    def NatGrad(self, F, psi_grad, trivial = True, **kwargs):
+    def NatGrad(self, F, psi_grad, **kwargs):
         """
         Compute the Natural gradient update as described by 
         Schmitt in https://doi.org/10.1103/PhysRevLett.125.100503
@@ -76,13 +76,15 @@ class NaturalGradient:
         """
         # Get TDVP equation from MC data
         S = psi_grad.covar().real 
-        # compute the natural gradient trivially
-        if trivial: 
-            S = self.jitted_inv(S + self.diagonalShift * jnp.eye(S.shape[-1]))
-            return self.jitted_dot(S, F)
+        # applying the diagonal shift
+        S = S + jnp.diag(self.diagonalShift * jnp.diag(S))
 
         # Transform TDVP equation to eigenbasis and compute SNR
-        self._transform_to_eigenbasis(S, F) #, Fdata)
+        self._transform_to_eigenbasis(S, F) 
+
+        # invert the eigenvalues and
+        # discard eigenvalues below numerical precision
+        self.invEv = jnp.where(jnp.abs(self.ev / (self.ev[-1])) > 1e-14, 1. / self.ev, 0.)
 
         if "ObsLoc" in kwargs:
             EO = psi_grad.covar_data(kwargs["ObsLoc"]).transform(linearFun = jnp.transpose(jnp.conj(self.V)))
@@ -91,25 +93,24 @@ class NaturalGradient:
             # computing the signal to noise ratio of the F vector
             self.snr = jnp.sqrt(jnp.abs(mpi.globNumSamples * (jnp.conj(self.VtF) * self.VtF).squeeze(-1) / self.rhoVar)).ravel()
 
-        # Discard eigenvalues below numerical precision
-        self.invEv = jnp.where(jnp.abs(self.ev / (self.ev[-1])) > 1e-14, 1. / self.ev, 0.)
-
-        residual = 1.0
-        regularizer = 1.0
-        pinvEv = self.invEv * regularizer
-        cutoff = 1e-2
-        F_norm = jnp.linalg.norm(F)
-        while residual > self.pinvTol and cutoff > self.pinvCutoff:
-            cutoff *= 0.8
-            # Set regularizer for singular value cutoff
-            regularizer = 1. / (1. + (max(cutoff, self.pinvCutoff) / jnp.abs(self.ev / self.ev[-1]))**6)
-
-            if "ObsLoc" in kwargs and not isinstance(self.sampler, jVMC.sampler.ExactSampler):
-                # Construct a soft cutoff based on the SNR
-                regularizer = 1. / (1. + (self.snrTol / self.snr)**6)
-
+            residual = 1.0
+            regularizer = 1.0
             pinvEv = self.invEv * regularizer
+            cutoff = 1e-2
+            F_norm = jnp.linalg.norm(F)
+            while residual > self.pinvTol and cutoff > self.pinvCutoff:
+                cutoff *= 0.8
+                # Set regularizer for singular value cutoff
+                regularizer = 1. / (1. + (max(cutoff, self.pinvCutoff) / jnp.abs(self.ev / self.ev[-1]))**6)
 
-            residual = jnp.linalg.norm((pinvEv * self.ev - jnp.ones_like(pinvEv)) * self.VtF) / F_norm
+                if "ObsLoc" in kwargs and not isinstance(self.sampler, jVMC.sampler.ExactSampler):
+                    # Construct a soft cutoff based on the SNR
+                    regularizer = 1. / (1. + (self.snrTol / self.snr)**6)
 
-        return jnp.dot(self.V, (pinvEv * self.VtF.reshape(pinvEv.shape)))
+                pinvEv = self.invEv * regularizer
+
+                residual = jnp.linalg.norm((pinvEv * self.ev - jnp.ones_like(pinvEv)) * self.VtF) / F_norm
+
+            self.invEv = pinvEv
+
+        return jnp.dot(self.V, (self.invEv  * self.VtF.reshape(self.invEv .shape)))

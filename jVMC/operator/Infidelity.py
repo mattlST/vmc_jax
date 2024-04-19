@@ -305,7 +305,7 @@ class Infidelity(op.Operator):
         return self.chi_Floc, self.Exp_chi_Floc
     
     
-    def get_gradient(self, psi, psi_p, getCVgrad=1., corrections=1.):
+    def get_gradient(self, psi, psi_p, getCVgrad=False, corrections=False):
         """ Compute :math:`\\nabla\\mathcal{I}`
 
         The gradient is computed from almost exclusively internally stored quantities
@@ -333,18 +333,18 @@ class Infidelity(op.Operator):
         Floc = SampledObs(self.psi_Floc, psi_p)
         grad = 2.*grads.covar(Floc)*self.Exp_chi_Floc
 
-        # if corrections:
-        # gradient correction
-        Ochi = psi.gradients(self.chi_s).real 
-        chi_Fgrads = SampledObs(Ochi * self.chi_Floc.reshape(*self.chi_Floc.shape,1).real, self.chi_p) 
-        corr_grad_minus = chi_Fgrads.mean().real * mpi.global_mean(self.psi_Floc.real,psi_p)
+        if corrections:
+            # gradient correction
+            Ochi = psi.gradients(self.chi_s).real 
+            chi_Fgrads = SampledObs(Ochi * self.chi_Floc.reshape(*self.chi_Floc.shape,1).real, self.chi_p) 
+            corr_grad_minus = chi_Fgrads.mean().real * mpi.global_mean(self.psi_Floc.real,psi_p)
 
-        psi_Fgrads = SampledObs(Opsi.real * self.psi_Floc.reshape(*self.psi_Floc.shape,1), psi_p)
-        corr_grad_plus = psi_Fgrads.mean().real * self.Exp_chi_Floc.real
-        corr_grad = (corr_grad_minus.reshape(grad.shape) - corr_grad_plus.reshape(grad.shape))
-        grad += corrections * corr_grad
+            psi_Fgrads = SampledObs(Opsi.real * self.psi_Floc.reshape(*self.psi_Floc.shape,1), psi_p)
+            corr_grad_plus = psi_Fgrads.mean().real * self.Exp_chi_Floc.real
+            corr_grad = (corr_grad_minus.reshape(grad.shape) - corr_grad_plus.reshape(grad.shape))
+            grad +=  corr_grad
 
-        if abs(getCVgrad) > 0.: 
+        if getCVgrad: 
             # gradient with CV
             # trivial contribution
             FlocCV = SampledObs(self.psi_FlocCV, psi_p)
@@ -355,7 +355,7 @@ class Infidelity(op.Operator):
             psi_Fgrads = SampledObs(Opsi.real * self.psi_FlocCV.reshape(*self.psi_FlocCV.shape,1), psi_p)
             corr_grad_plus = psi_Fgrads.mean().real * self.Exp_chi_FlocCV.real
             gradCV +=  (corr_grad_minus.reshape(grad.shape) - corr_grad_plus.reshape(grad.shape))
-            grad += getCVgrad * self.CVc * 2. * gradCV
+            grad += self.CVc * 2. * gradCV
 
         return -1. * (grad).real, grads
         
@@ -586,7 +586,7 @@ class Infidelity(op.Operator):
         varF2 = mpi.global_mean(self.chi_F2locCV,self.chi_p) * mpi.global_mean(self.psi_F2locCV,psi_p)
         varF2 -= (self.Exp_chi_FlocCV * Exp_psi_FlocCV)**2
         # combine
-        self.CVc = (-covarFF2.real / varF2.real)
+        self.CVc = - abs(covarFF2.real / varF2.real)
         # there is no output
         return None
 
