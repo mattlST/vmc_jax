@@ -20,6 +20,19 @@ import functools
 import itertools
 
 
+class MovingAverage(object):
+    """This class provides functionality to compute the moving average of a given quantity.
+        :math:`\\frac{1}{N}\\sum_{i=k}^{N} x_{k+i}`
+    """
+    def __init__(self,width = 10, init = 0.):
+        self.values = jnp.zeros(width)
+
+    def update(self,value):
+        self.values = jnp.roll(self.values,-1)
+        self.values =  self.values.at[-1].set(value)
+        return jnp.sum(self.values)/jnp.array(self.values).shape[-1]
+
+
 class _InfidelityP(op.Operator):
     """This class provides functionality to compute ratios of neural quantum states :math:`\\frac{\\chi(s)}{\\psi(s)}`. More specifically it implements
 
@@ -192,9 +205,11 @@ class Infidelity(op.Operator):
         * ``chiSampler``: Sampler initialized with ``chi``
         * ``ElocBatchSize``: Batch size for the local infidelity. Default is -1.
         * ``getCV``: Bool to include control variates. Default is False.
+        * ``adaptCV``: Bool to adapt the control variates. Default is False.
+        * ``MovingAverageWidth``: Width of the moving average. Default is 1.
     """
     
-    def __init__(self,chi,chiSampler,ElocBatchSize=-1,getCV=False,adaptCV=False):
+    def __init__(self,chi,chiSampler,ElocBatchSize=-1,getCV=False,adaptCV=False,MovingAverageWidth=1):
 
         #########################################################
 
@@ -212,6 +227,8 @@ class Infidelity(op.Operator):
         if adaptCV and not getCV:
             print("WARNING: adaptCV is set to True, but getCV is set to False. Setting adaptCV to True.")
             self.getCV = True
+        # moving average
+        self.rmean = MovingAverage(MovingAverageWidth)
 
         ######## get samples ########
         self.chi_s, self.chi_logChi, self.chi_p = self.chiSampler.sample()
@@ -335,12 +352,12 @@ class Infidelity(op.Operator):
 
         if corrections:
             # gradient correction
-            Ochi = psi.gradients(self.chi_s).real 
-            chi_Fgrads = SampledObs(Ochi * self.chi_Floc.reshape(*self.chi_Floc.shape,1).real, self.chi_p) 
-            corr_grad_minus = chi_Fgrads.mean().real * mpi.global_mean(self.psi_Floc.real,psi_p)
+            Ochi = psi.gradients(self.chi_s) 
+            chi_Fgrads = SampledObs(Ochi * self.chi_Floc.reshape(*self.chi_Floc.shape,1), self.chi_p) 
+            corr_grad_minus = chi_Fgrads.mean() * mpi.global_mean(self.psi_Floc,psi_p)
 
-            psi_Fgrads = SampledObs(Opsi.real * self.psi_Floc.reshape(*self.psi_Floc.shape,1), psi_p)
-            corr_grad_plus = psi_Fgrads.mean().real * self.Exp_chi_Floc.real
+            psi_Fgrads = SampledObs(Opsi * self.psi_Floc.reshape(*self.psi_Floc.shape,1), psi_p)
+            corr_grad_plus = psi_Fgrads.mean() * self.Exp_chi_Floc
             corr_grad = (corr_grad_minus.reshape(grad.shape) - corr_grad_plus.reshape(grad.shape))
             grad +=  corr_grad
 
@@ -350,12 +367,12 @@ class Infidelity(op.Operator):
             FlocCV = SampledObs(self.psi_FlocCV, psi_p)
             gradCV = grads.covar(FlocCV)*self.Exp_chi_FlocCV
             # additional correction
-            chi_FgradsCV = SampledObs(Ochi * self.chi_FlocCV.reshape(*self.chi_FlocCV.shape,1).real, self.chi_p) 
-            corr_grad_minus = chi_FgradsCV.mean().real * mpi.global_mean(self.psi_FlocCV.real,psi_p)
-            psi_Fgrads = SampledObs(Opsi.real * self.psi_FlocCV.reshape(*self.psi_FlocCV.shape,1), psi_p)
-            corr_grad_plus = psi_Fgrads.mean().real * self.Exp_chi_FlocCV.real
+            chi_FgradsCV = SampledObs(Ochi * self.chi_FlocCV.reshape(*self.chi_FlocCV.shape,1), self.chi_p) 
+            corr_grad_minus = chi_FgradsCV.mean() * mpi.global_mean(self.psi_FlocCV,psi_p)
+            psi_Fgrads = SampledObs(Opsi * self.psi_FlocCV.reshape(*self.psi_FlocCV.shape,1), psi_p)
+            corr_grad_plus = psi_Fgrads.mean() * self.Exp_chi_FlocCV
             gradCV +=  (corr_grad_minus.reshape(grad.shape) - corr_grad_plus.reshape(grad.shape))
-            grad += self.CVc * 2. * gradCV
+            grad += self.CVc * gradCV # * 2 removed factor 
 
         return -1. * (grad).real, grads
         
@@ -586,7 +603,7 @@ class Infidelity(op.Operator):
         varF2 = mpi.global_mean(self.chi_F2locCV,self.chi_p) * mpi.global_mean(self.psi_F2locCV,psi_p)
         varF2 -= (self.Exp_chi_FlocCV * Exp_psi_FlocCV)**2
         # combine
-        self.CVc = - abs(covarFF2.real / varF2.real)
+        self.CVc = self.rmean.update(- abs(covarFF2.real / varF2.real))
         # there is no output
         return None
 
