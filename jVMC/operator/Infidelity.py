@@ -361,7 +361,7 @@ class Infidelity(op.Operator):
             corr_grad = (corr_grad_minus.reshape(grad.shape) - corr_grad_plus.reshape(grad.shape))
             grad +=  corr_grad
 
-        if getCVgrad: 
+        if getCVgrad and self.getCV: 
             # gradient with CV
             # trivial contribution
             FlocCV = SampledObs(self.psi_FlocCV, psi_p)
@@ -377,7 +377,7 @@ class Infidelity(op.Operator):
         return -1. * (grad).real, grads
         
 
-    def get_O_loc(self, samples, psi, logPsiS, psi_p = None, *args):
+    def get_O_loc(self, samples, psi, logPsiS, psi_p = None, **kwargs):
         """Compute :math:`F^\\psi_{\\rm loc}(s)` in batches.
 
         Computes :math:`F^\\psi_{\\rm loc}(s)=F^\\chi\\frac{\chi(s)}{\psi(s)}` in a batch-wise manner
@@ -388,7 +388,7 @@ class Infidelity(op.Operator):
             * ``psi``: Neural quantum state.
             * ``logPsiS``: Logarithmic amplitudes :math:`\\ln(\psi(s))`
             * ``psi_p``: Born distribution :math:`\Psi(s)` as created by sample funciton
-            * ``*args``: Further positional arguments for the operator.
+            * ``**kwargs``: Further positional arguments for the operator.
 
         Returns:
             :math:`1 - F^\\psi_{\\rm loc}(s)F^\\chi` for each configuration :math:`s`.
@@ -410,10 +410,14 @@ class Infidelity(op.Operator):
             self.psi_Floc2FlocCV = Oloc_set[3]
             # compute the control variates
             self._get_CVc(psi_p)
+            if "CVc" in kwargs:
+                CVc = kwargs["CVc"]
+            else:
+                CVc = self.CVc
             # reset the samples
             self.sp = jnp.expand_dims(samples,-2)
             # return the control variates infidelity
-            return 1. - self.psi_Floc * self.Exp_chi_Floc - self.CVc * (self.psi_FlocCV*self.Exp_chi_FlocCV - 1.)
+            return 1. - self.psi_Floc * self.Exp_chi_Floc - CVc * (self.psi_FlocCV*self.Exp_chi_FlocCV - 1.)
         
         elif self.getCV:
             Oloc_set = self._O_loc_dist(samples,
@@ -603,7 +607,7 @@ class Infidelity(op.Operator):
         varF2 = mpi.global_mean(self.chi_F2locCV,self.chi_p) * mpi.global_mean(self.psi_F2locCV,psi_p)
         varF2 -= (self.Exp_chi_FlocCV * Exp_psi_FlocCV)**2
         # combine
-        self.CVc = self.rmean.update(- abs(covarFF2.real / varF2.real))
+        self.CVc = self.rmean.update( - abs(covarFF2.real / varF2.real))
         # there is no output
         return None
 
