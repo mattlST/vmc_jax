@@ -322,7 +322,7 @@ class Infidelity(op.Operator):
         return self.chi_Floc, self.Exp_chi_Floc
     
     
-    def get_gradient(self, psi, psi_p, getCVgrad=False, corrections=False):
+    def get_gradient(self, psi, psi_p, getCVgrad=False, CVscale = 1.):
         """ Compute :math:`\\nabla\\mathcal{I}`
 
         The gradient is computed from almost exclusively internally stored quantities
@@ -350,29 +350,17 @@ class Infidelity(op.Operator):
         Floc = SampledObs(self.psi_Floc, psi_p)
         grad = 2.*grads.covar(Floc)*self.Exp_chi_Floc
 
-        if corrections:
-            # gradient correction
-            Ochi = psi.gradients(self.chi_s) 
-            chi_Fgrads = SampledObs(Ochi * self.chi_Floc.reshape(*self.chi_Floc.shape,1), self.chi_p) 
-            corr_grad_minus = chi_Fgrads.mean() * mpi.global_mean(self.psi_Floc,psi_p)
-
-            psi_Fgrads = SampledObs(Opsi * self.psi_Floc.reshape(*self.psi_Floc.shape,1), psi_p)
-            corr_grad_plus = psi_Fgrads.mean() * self.Exp_chi_Floc
-            corr_grad = (corr_grad_minus.reshape(grad.shape) - corr_grad_plus.reshape(grad.shape))
-            grad +=  corr_grad
-
         if getCVgrad and self.getCV: 
             # gradient with CV
-            # trivial contribution
+            Ochi = psi.gradients(self.chi_s) 
             FlocCV = SampledObs(self.psi_FlocCV, psi_p)
-            gradCV = grads.covar(FlocCV)*self.Exp_chi_FlocCV
-            # additional correction
-            chi_FgradsCV = SampledObs(Ochi * self.chi_FlocCV.reshape(*self.chi_FlocCV.shape,1), self.chi_p) 
+            self.gradCV = grads.covar(FlocCV) * self.Exp_chi_FlocCV
+            chi_FgradsCV = SampledObs(Ochi.conjugate() * self.chi_FlocCV.reshape(*self.chi_FlocCV.shape,1), self.chi_p) 
             corr_grad_minus = chi_FgradsCV.mean() * mpi.global_mean(self.psi_FlocCV,psi_p)
             psi_Fgrads = SampledObs(Opsi * self.psi_FlocCV.reshape(*self.psi_FlocCV.shape,1), psi_p)
             corr_grad_plus = psi_Fgrads.mean() * self.Exp_chi_FlocCV
-            gradCV +=  (corr_grad_minus.reshape(grad.shape) - corr_grad_plus.reshape(grad.shape))
-            grad += self.CVc * gradCV # * 2 removed factor 
+            self.gradCV += (corr_grad_minus.reshape(self.gradCV.shape) - corr_grad_plus.reshape(self.gradCV.shape))
+            grad += - CVscale * self.CVc * self.gradCV.real
 
         return -1. * (grad).real, grads
         
