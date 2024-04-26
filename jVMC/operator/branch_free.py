@@ -215,7 +215,9 @@ class BranchFreeOperator(Operator):
             if isDiagonal:
                 self.diag.append(o)
             o = o + 1
-
+        #print([len(x) for x in self.map])
+        #print(self.map)
+        
         self.idxC = jnp.array(self.idx, dtype=np.int32)
         self.mapC = jnp.array(self.map, dtype=np.int32)
         self.matElsC = jnp.array(self.matEls, dtype=opDtype)

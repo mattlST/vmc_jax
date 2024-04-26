@@ -18,7 +18,8 @@ def avgFun_Coefficients_Sep(coeffs, sym_factor):
     im = jnp.imag(coeffs)
     return 0.5 * jnp.log(jnp.mean(jnp.exp(2 * re))) + 1j * jnp.angle(jnp.mean(jnp.exp(1j * im)))
 
-
+def avgFun_Coefficients_Sep_real(coeffs, sym_factor):
+    return 0.5 * jnp.log(jnp.mean(jnp.exp(2 * coeffs))) 
 class SymNet(nn.Module):
     """
     Wrapper module for symmetrization.

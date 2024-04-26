@@ -183,19 +183,19 @@ def ground_state_search(psi, ham, tdvpEquation, sampler, numSteps=200, varianceT
         if observables is not None:
             obs = measure(observables, psi, sampler)
             outp.write_observables(n, **obs)
-
+    mean = 0.
     varE = 1.0
-
-    while n < numSteps and varE > varianceTol:
+    varErel = 1.
+    while n < numSteps and varErel > varianceTol:
 
         tic = time.perf_counter()
 
         dp, _ = stepper.step(0, tdvpEquation, psi.get_parameters(), hamiltonian=ham, psi=psi, numSamples=None, outp=outp)
-        psi.set_parameters(dp)
+        psi.set_parameters(dp.real)
         n += 1
-
+        mean = tdvpEquation.get_energy_mean()
         varE = tdvpEquation.get_energy_variance()
-
+        varErel = np.abs(varE/mean)
         if outp is not None:
             if observables is not None:
                 obs = measure(observables, psi, sampler)
@@ -206,8 +206,12 @@ def ground_state_search(psi, ham, tdvpEquation, sampler, numSteps=200, varianceT
             tdvpEquation.set_diagonal_shift(delta)
 
         if outp is not None:
+            display(clear=True)
             outp.print(" STEP %d" % (n))
-            outp.print("   Energy mean: %f" % (tdvpEquation.get_energy_mean()))
+            outp.print("   Energy mean: %f" % (mean))
             outp.print("   Energy variance: %f" % (varE))
+            outp.print("   relative Energy variance: %f" % (varErel))
+            
             outp.print_timings(indent="   ")
             outp.print("   == Time for step: %fs" % (time.perf_counter() - tic))
+    #return sampler,psi
