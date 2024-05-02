@@ -353,13 +353,13 @@ class Infidelity(op.Operator):
             # gradient with CV
             Ochi = psi.gradients(self.chi_s) 
             FlocCV = SampledObs(self.psi_FlocCV, psi_p)
-            self.gradCV = grads.covar(FlocCV) * self.Exp_chi_FlocCV
-            chi_FgradsCV = SampledObs(Ochi.conjugate() * self.chi_FlocCV.reshape(*self.chi_FlocCV.shape,1), self.chi_p) 
+            self.gradCV = (grads.covar(FlocCV) * self.Exp_chi_FlocCV).real
+            chi_FgradsCV = SampledObs(Ochi.real * self.chi_FlocCV.reshape(*self.chi_FlocCV.shape,1), self.chi_p) 
             corr_grad_minus = chi_FgradsCV.mean() * mpi.global_mean(self.psi_FlocCV,psi_p)
-            psi_Fgrads = SampledObs(Opsi * self.psi_FlocCV.reshape(*self.psi_FlocCV.shape,1), psi_p)
+            psi_Fgrads = SampledObs(Opsi.real * self.psi_FlocCV.reshape(*self.psi_FlocCV.shape,1), psi_p)
             corr_grad_plus = psi_Fgrads.mean() * self.Exp_chi_FlocCV
-            self.gradCV += (corr_grad_minus.reshape(self.gradCV.shape) - corr_grad_plus.reshape(self.gradCV.shape))
-            grad += - CVscale * self.CVc * self.gradCV.real
+            self.gradCV += (corr_grad_minus.reshape(self.gradCV.shape).real - corr_grad_plus.reshape(self.gradCV.shape).real)
+            grad +=  CVscale * self.CVc * self.gradCV
 
         return -1. * (grad).real, grads
         
