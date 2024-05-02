@@ -32,13 +32,14 @@ class NaturalGradient:
     * ``diagonalizeOnDevice``: Choose whether to diagonalize :math:`S` on GPU or CPU.
     """
 
-    def __init__(self, sampler, snrTol=4., pinvTol=1e-14, pinvCutoff=1e-8, diagonalShift=0., diagonalizeOnDevice=True):
+    def __init__(self, sampler, snrTol=4., pinvTol=1e-14, pinvCutoff=1e-8, diagonalShift=0., diagonalScale=0., diagonalizeOnDevice=True):
         
         self.sampler = sampler
         self.snrTol = snrTol
         self.pinvTol = pinvTol
         self.pinvCutoff = pinvCutoff
         self.diagonalShift = diagonalShift
+        self.diagonalScale = diagonalScale
         self.diagonalizeOnDevice = diagonalizeOnDevice
 
         self.jitted_inv = jax.jit(jnp.linalg.inv)
@@ -77,7 +78,7 @@ class NaturalGradient:
         # Get TDVP equation from MC data
         S = psi_grad.covar().real 
         # applying the diagonal shift
-        S = S + jnp.diag(self.diagonalShift * jnp.diag(S))
+        S = S + jnp.diag(self.diagonalScale * jnp.diag(S) + self.diagonalShift * jnp.ones_like(S[0]))
 
         # Transform TDVP equation to eigenbasis and compute SNR
         self._transform_to_eigenbasis(S, F) 
@@ -104,7 +105,7 @@ class NaturalGradient:
                 regularizer = 1. / (1. + (max(cutoff, self.pinvCutoff) / jnp.abs(self.ev / self.ev[-1]))**6)
 
                 if "ObsLoc" in kwargs and not isinstance(self.sampler, jVMC.sampler.ExactSampler):
-                    # Construct a soft cutoff based on the SNR
+                    # Construct a soft cutoff based the SNR
                     regularizer = 1. / (1. + (self.snrTol / self.snr)**6)
 
                 pinvEv = self.invEv * regularizer

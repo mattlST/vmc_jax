@@ -336,8 +336,7 @@ class Infidelity(op.Operator):
             * ``psi``: Neural quantum state.
             * ``psi_p``: Born distribution :math:`\Psi(s)` evaluated at the samples
             * ``getCVgrad``: Bool to include control variate gradient
-            * ``corrections``: Bool to include gradient correction
-            * ``corrections2``: Bool to include gradient correction for the control variates
+            * ``CVscale``: Heuristic scaling factor for the control variate gradient. Default is 1.
 
         Returns:
             * :math:`F^\\chi_{\\rm loc}(s)` for each configuration :math:`s`.
