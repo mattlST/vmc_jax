@@ -34,7 +34,8 @@ class MinSR:
         self.diagonalizeOnDevice = diagonalizeOnDevice
 
         self.metaData = None
-
+        self.printFLag = False
+        
         self.makeReal = realFun
         if makeReal == 'imag':
             self.makeReal = imagFun
@@ -76,7 +77,8 @@ class MinSR:
         eloc_all = mpi.gather(eloc._data).reshape((-1,))
         gradients_all = mpi.gather(gradients._data)
         update = - gradients_all.conj().T @ T_inv @ eloc_all
-
+        if self.printFLag:
+            print(f"update norm: f{jnp.linalg.norm(update):.2e},gradient norm: f{jnp.linalg.norm(gradients_all):.2e}")
         return update
 
     def __call__(self, netParameters, t, *, psi, hamiltonian, **rhsArgs):

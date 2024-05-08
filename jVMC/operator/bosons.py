@@ -120,7 +120,7 @@ def propose_hopping(key, s, info,particles):
     
     return s
 
-def propose_hopping_nn(key, s, info,particles):
+def propose_hopping_nn(key, s, info,particles,L):
     # propose hopping of a single particle from one site to a random site 
     idxKeyDestroy, idxKeyCreate = jax.random.split(key, num=2)
     # can't use jnp.where because then it is not jit-compilable

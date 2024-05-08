@@ -464,7 +464,8 @@ class NQS:
         return paramOut
 
     # **  end def set_parameters
-
+    def set_generator(self,flag):
+        self._isGenerator = flag
     @property
     def is_generator(self):
         return self._isGenerator
