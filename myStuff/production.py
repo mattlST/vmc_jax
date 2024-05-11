@@ -42,17 +42,7 @@ from jVMC.global_defs import tReal
 from jVMC.util import measure
 import gpt_particle
 
-
-
-
-
-import network
-######## load config
-with open('test_file.json') as f:
-    d = json.load(f)
-    print(d)
-
-
+debug = True
 
 def main():
     ############################
@@ -76,11 +66,13 @@ def main():
     num_samples = config["numSamples"]
     steps = config["training_steps"]
     flag_NG = config["natural_gradient"]
-    
+    seed = config["seed"]
+    training_steps = config["training_steps"]
     #"OutDir":"results", # dummy
-    net = config["net"]
+    net_name = config["net"]
     net_para = config["net_parameter"]
-    if net == "gpt_BH":
+    print(net_name)
+    if net_name == "BHgpt":
         ebDim = net_para[0]
         dep = net_para[1] 
         nH = net_para[2]
@@ -98,13 +90,13 @@ def main():
     # interaction 
     #########
     
-    H = BoseHubbard_Hamiltonian1D(L,J,U,lDim,mu,V):
+    H = BoseHubbard_Hamiltonian1D(L,J,U,lDim,mu,V)
     iTerm = interactionTerm(L,lDim)
     jTerm = hoppingTerm(L,lDim)
     occ = occupations(L,lDim)
     measures_obs = {"jTerm": jTerm, "iTerm": iTerm,  "occupation": occ }
 
-
+    net = gpt_particle.GPT(L,N,lDim,ebDim,dep,nH)
     sym = jVMC.util.symmetries.get_orbit_1D(L,"reflection","translation")
     symNet = jVMC.nets.sym_wrapper.SymNet(sym,net,avgFun=jVMC.nets.sym_wrapper.avgFun_Coefficients_Sep_real)
 
@@ -113,54 +105,71 @@ def main():
     sampler = jVMC.sampler.MCSampler(psi, (L,), jax.random.PRNGKey(seed), numSamples=num_samples)
     minSR_equation = jVMC.util.MinSR(sampler, makeReal='real',diagonalShift=diagShift,diagonalMulti=diagMult)
     
-    resTraining = np.zeros((n_steps,3),dtype=float)
-    resMeasures = []
-    ipr_samp = np.zeros(n_steps,dtype=float)
+    resTraining = np.zeros((training_steps,3),dtype=float)
+    #resMeasures_mean = np.zeros((training_steps,2+L),dtype=float)
+    #resMeasures_var = np.zeros((training_steps,2+L),dtype=float)
+
+    resMeasures = {}
+    for key in measures_obs.keys():
+        resMeasures[key] = {"mean" : [], "variance" : []}
+        
+    ipr_samp = np.zeros(training_steps,dtype=float)
     ##### training
     stepper = jVMC.util.stepper.Euler(timeStep=lr)  
     
-    for n in range(n_steps):
+    for n in range(training_steps):
         dpOld = psi.get_parameters()
     
-        dp, _ = stepper.step(0, minSR_equation, dpOld, hamiltonian=H, psi=psi, numSamples=numSamp)
+        dp, _ = stepper.step(0, minSR_equation, dpOld, hamiltonian=H, psi=psi, numSamples=num_samples)
         psi.set_parameters(jnp.real(dp))
-    
-        resMeasures += [measure(measures_obs,psi=psi,sampler=sampler)]
+        mes = measure(measures_obs,psi=psi,sampler=sampler)
+
+        for key in measures_obs.keys():
+            #print(key)
+            #print(mes[key])
+            if len(mes[key]["mean"]) == 1:
+                resMeasures[key]["mean"] += mes[key]["mean"].tolist()
+                resMeasures[key]["variance"] += mes[key]["variance"].tolist()
+            else:
+                resMeasures[key]["mean"] += [mes[key]["mean"].tolist()]
+                resMeasures[key]["variance"] += [mes[key]["variance"].tolist()]
         resTraining[n] = [n, jnp.real(minSR_equation.ElocMean0) , minSR_equation.ElocVar0 ]
+        
         sampIPR = np.concatenate([np.exp(sampler.sample()[1].squeeze()) for _ in range(2)])
-        ipr_samp[n] = [np.sum(sampIPR**2)/len(sampIPR)
+        ipr_samp[n] = np.sum(sampIPR**2)/len(sampIPR)
 
-    # save measures, energies and to file 
-        np.savetxt(config["OutDir"]+"/ipr_training.txt",ipr_samp)
-        np.savetxt(config["OutDir"]+"/energy_training.txt",resTraining)
+        # save measures, energies and to file 
         # compute Sx observables on the fly
-        SxOp = op.BranchFreeOperator()
-        SxOp.add((op.Sx(L//2),))
-        obs = jVMC.util.measure({"Sx": SxOp}, psi, psiSampler,numSamples=2**16)
-        psi_obs = obs["Sx"]["mean"][0]
-        psi_var = np.sqrt(obs["Sx"]["variance"][0]/2**(16))
         # save the results
-        h5save.save_model_params(psi.parameters,
-                                f"training_step_{n}"
-                                )
-                                #{"infidelity": infidelities[i],
-                                #"time":T,
-                                #"psi_obs":psi_obs,
-                                #"psi_var":psi_var,
-                                #"chi_obs":chi_obs,
-                                #"chi_var":chi_var,
-                                #"lr":learning_rate,
-                                #"dshift":d_shift,
-                                #"seed":seed,
-                                #"numSamples":numSamples,
-                                #"net_size":psi_params.shape[0],
-                                #"net":config["net"]})
-
-##### saving results: measures
-
-
-
-
+        
+    ##### saving results: measures
+        if (((n%10) ==0) or (n == (training_steps-1))):
+            if debug:
+                print("step", n,"finished")
+        
+            resMeasures["H"]= {"mean": resTraining[:,1].tolist(), "variance": resTraining[:,2].tolist()}
+            resMeasures["ipr"] ={"mean": ipr_samp.tolist()}
+            with open(config["OutDir"]+'/measures.json', 'w') as f:
+                json.dump(resMeasures, f)
+                
+            h5save.save_model_params(psi.parameters,
+                                    f"training_step_{n}",
+                                    {})
+                                    #{"infidelity": infidelities[i],
+                                    #"time":T,
+                                    #"psi_obs":psi_obs,
+                                    #"psi_var":psi_var,
+                                    #"chi_obs":chi_obs,
+                                    #"chi_var":chi_var,
+                                    #"lr":learning_rate,
+                                    #"dshift":d_shift,
+                                    #"seed":seed,
+                                    #"numSamples":numSamples,
+                                    #"net_size":psi_params.shape[0],
+                                    #"net":config["net"]})
+                
+    return "finished"
+print(main())
 
 
 

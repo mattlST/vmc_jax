@@ -129,14 +129,14 @@ def interactionTerm(L,lDim=2):
 def hoppingTerm(L,lDim=2):
     jTerm = BranchFreeOperator(lDim=lDim)
     for l in range(L):    
-        hamiltonian1D.add(scal_opstr(-1, (create(l,lDim), destroy((l + 1) % L,lDim))))
-        hamiltonian1D.add(scal_opstr(-1, (create((l+1)%L,lDim), destroy((l),lDim))))
+        jTerm.add(scal_opstr(-1, (create(l,lDim), destroy((l + 1) % L,lDim))))
+        jTerm.add(scal_opstr(-1, (create((l+1)%L,lDim), destroy((l),lDim))))
         
     return jTerm
 def occupations(L,lDim=2):
-    occ= [BranchFreeOperator(lDim=lDim) for l in range(L)]
+    occ = [BranchFreeOperator(lDim=lDim) for l in range(L)]
     for l in range(L):    
-        occ[l].add(scal_opstr(1, (n(l,lDim), )))     
+        occ[l].add(scal_opstr(1, (number(l,lDim), )))     
     return occ
 
 
