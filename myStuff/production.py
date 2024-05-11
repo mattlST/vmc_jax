@@ -1,3 +1,4 @@
+import numpy as np
 import json
 
 from jax.config import config  # type: ignore
@@ -31,7 +32,7 @@ ebDim, dep, nH
 # occupations
 # interaction 
 #########
-measures = {"H": Hamiltonian, "I": Interaction, "IPR": ipr, "occupation": occ }
+measures_obs = {"H": Hamiltonian, "I": Interaction, "IPR": ipr, "occupation": occ }
 
 
 sym = jVMC.util.symmetries.get_orbit_1D(L,"reflection","translation")
@@ -43,8 +44,8 @@ psi = jVMC.vqs.NQS(symNet, seed=282)
 
 sampler = jVMC.sampler.MCSampler(psi, (L,), jax.random.PRNGKey(1), 
 tdvpEquation = jVMC.util.MinSR(sampler, makeReal='real',diagonalShift=diagonalShift,diagonalMulti=diagonalMulti)
-res = np.zeros((n_steps,3),dtype=float)
-
+resTraining = np.zeros((n_steps,3),dtype=float)
+resMeasures = []
 ##### training
 
 for n in range(n_steps):
@@ -54,8 +55,8 @@ for n in range(n_steps):
     dp, _ = stepper.step(0, tdvpEquation, dpOld, hamiltonian=hamiltonian1D, psi=psi, numSamples=numSamp)
     psi.set_parameters(jnp.real(dp))
 
-    res = measure({"H": hamiltonian1D},psi=psi,sampler=sampler)
-    res[n] = [n, jnp.real(tdvpEquation.ElocMean0) , tdvpEquation.ElocVar0 ]
+    resMeasures += [measure(measures_obs,psi=psi,sampler=sampler)]
+    resTraining[n] = [n, jnp.real(tdvpEquation.ElocMean0) , tdvpEquation.ElocVar0 ]
     
 
 
