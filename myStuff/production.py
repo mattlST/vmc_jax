@@ -64,6 +64,9 @@ def main():
     diagShift = config["diagS"]
     diagMult = config["diagM"]
     num_samples = config["numSamples"]
+    
+    num_samples_measures = config["numSamples_measures"]
+    
     steps = config["training_steps"]
     flag_NG = config["natural_gradient"]
     seed = config["seed"]
@@ -71,6 +74,7 @@ def main():
     #"OutDir":"results", # dummy
     net_name = config["net"]
     net_para = config["net_parameter"]
+
     print(net_name)
     if net_name == "BHgpt":
         ebDim = net_para[0]
@@ -94,7 +98,7 @@ def main():
     iTerm = interactionTerm(L,lDim)
     jTerm = hoppingTerm(L,lDim)
     occ = occupations(L,lDim)
-    measures_obs = {"jTerm": jTerm, "iTerm": iTerm,  "occupation": occ }
+    measures_obs = {"jTerm": jTerm, "iTerm": iTerm, "energy": H,  "occupation": occ }
 
     net = gpt_particle.GPT(L,N,lDim,ebDim,dep,nH)
     sym = jVMC.util.symmetries.get_orbit_1D(L,"reflection","translation")
@@ -105,7 +109,7 @@ def main():
     sampler = jVMC.sampler.MCSampler(psi, (L,), jax.random.PRNGKey(seed), numSamples=num_samples)
     minSR_equation = jVMC.util.MinSR(sampler, makeReal='real',diagonalShift=diagShift,diagonalMulti=diagMult)
     
-    resTraining = np.zeros((training_steps,3),dtype=float)
+    resTraining = np.zeros((training_steps,2),dtype=float)
     #resMeasures_mean = np.zeros((training_steps,2+L),dtype=float)
     #resMeasures_var = np.zeros((training_steps,2+L),dtype=float)
 
@@ -113,7 +117,9 @@ def main():
     for key in measures_obs.keys():
         resMeasures[key] = {"mean" : [], "variance" : []}
         
-    ipr_samp = np.zeros(training_steps,dtype=float)
+    ipr_samp = np.zeros((training_steps,2),dtype=float)
+    logipr_samp = np.zeros((training_steps,2),dtype=float)
+    
     ##### training
     stepper = jVMC.util.stepper.Euler(timeStep=lr)  
     
@@ -122,7 +128,7 @@ def main():
     
         dp, _ = stepper.step(0, minSR_equation, dpOld, hamiltonian=H, psi=psi, numSamples=num_samples)
         psi.set_parameters(jnp.real(dp))
-        mes = measure(measures_obs,psi=psi,sampler=sampler)
+        mes = measure(measures_obs,psi=psi,sampler=sampler,numSamples=num_samples_measures)
 
         for key in measures_obs.keys():
             #print(key)
@@ -133,22 +139,28 @@ def main():
             else:
                 resMeasures[key]["mean"] += [mes[key]["mean"].tolist()]
                 resMeasures[key]["variance"] += [mes[key]["variance"].tolist()]
-        resTraining[n] = [n, jnp.real(minSR_equation.ElocMean0) , minSR_equation.ElocVar0 ]
+        resTraining[n] = [jnp.real(minSR_equation.ElocMean0) , minSR_equation.ElocVar0 ]
         
-        sampIPR = np.concatenate([np.exp(sampler.sample()[1].squeeze()) for _ in range(2)])
-        ipr_samp[n] = np.sum(sampIPR**2)/len(sampIPR)
+        #sampIPR = np.concatenate([np.exp(sampler.sample()[1].squeeze()) for _ in range(2)])
+        sampIPR = jnp.exp(2*sampler.sample(numSamples=num_samples_measures)[1].squeeze()) # squared amplidutes -- probabilities |\psi|**2 (no phase as the ground state is positive)
+        ipr_samp[n,0] = jnp.sum(sampIPR)/jnp.size(sampIPR) # MC sampling --> E[\psi**2] =corresponds= sum_{s \in Hilbert space} |\psi(s)|^4
+        ipr_samp[n,1] = (jnp.sum(sampIPR**2)/jnp.size(sampIPR) - ipr_samp[n,0]**2)
+
+        #entropy of probabilities: sum_{s \in Hilbert space} |\psi(s)|^2 log(|\psi(s)|^2 )
+        logipr_samp[n,0] = jnp.sum(np.log(sampIPR))/jnp.size(sampIPR) 
+        logipr_samp[n,1] = (jnp.sum(np.log(sampIPR)**2)/jnp.size(sampIPR) - logipr_samp[n,0]**2)
 
         # save measures, energies and to file 
         # compute Sx observables on the fly
         # save the results
         
     ##### saving results: measures
-        if (((n%10) ==0) or (n == (training_steps-1))):
-            if debug:
-                print("step", n,"finished")
-        
-            resMeasures["H"]= {"mean": resTraining[:,1].tolist(), "variance": resTraining[:,2].tolist()}
-            resMeasures["ipr"] ={"mean": ipr_samp.tolist()}
+            
+        if (((n%10) ==0) or (n == (training_steps-1))):        
+            resMeasures["training_energy"]= {"mean": resTraining[:,0].tolist(), "variance": resTraining[:,1].tolist()}
+            resMeasures["ipr"] ={"mean": ipr_samp[:,0].tolist(), "variance": ipr_samp[:,1].tolist()}
+            resMeasures["logipr"] ={"mean": logipr_samp[:,0].tolist(), "variance": logipr_samp[:,1].tolist()}
+            
             with open(config["OutDir"]+'/measures.json', 'w') as f:
                 json.dump(resMeasures, f)
                 
