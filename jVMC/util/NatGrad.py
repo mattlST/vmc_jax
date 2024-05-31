@@ -28,7 +28,8 @@ class NaturalGradient:
     * ``snrTol``: Regularization parameter :math:`\epsilon_{SNR}`, see above.
     * ``pinvTol``: Regularization parameter :math:`\epsilon_{SVD}` (see above) is chosen such that :math:`||S\\dot\\theta-F|| / ||F||<pinvTol`.
     * ``pinvCutoff``: Lower bound for the regularization parameter :math:`\epsilon_{SVD}`, see above.
-    * ``diagonalShift``: Regularization parameter :math:`\\rho` for ground state search, see above.
+    * ``diagonalShift``: Regularization parameter :math:`\\rho` for ground state search.
+    * ``diagonalScale`: Regularization parameter :math:`\\rho` for ground state search.
     * ``diagonalizeOnDevice``: Choose whether to diagonalize :math:`S` on GPU or CPU.
     """
 
