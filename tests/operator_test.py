@@ -146,7 +146,6 @@ class TestOperator(unittest.TestCase):
             Comm.add(op.scal_opstr( 1., (op.creation(j), op.annihilation(i), ) ) )
             return Comm
 
-
         observalbes_dict = {
                             "same_site": [commutator(0,0),commutator(1,1)], 
                             "distinct_site": [commutator(0,1),commutator(1,0)]
@@ -170,7 +169,6 @@ class TestOperator(unittest.TestCase):
                         jnp.array([0.,0.,0.,0.]),
                         rtol=1e-15)
             )
-        
 
 if __name__ == "__main__":
     unittest.main()
