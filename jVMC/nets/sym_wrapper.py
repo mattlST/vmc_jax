@@ -44,7 +44,10 @@ class SymNet(nn.Module):
 
         if "sample" in dir(self.net):
             self.sample = self._sample_fun
-
+        #if "apply" in dir(self.net):
+        #    self.apply = self._apply_fun
+            
+        #print(dir(self.net))
         super().__post_init__()
 
 
@@ -65,5 +68,8 @@ class SymNet(nn.Module):
     def _sample_fun(self, *args):
 
         return self.net.sample(*args)
+        
+    def _apply_fun(self, *args):
+        return self.net.apply(*args)
 
 # ** end class SymNet
