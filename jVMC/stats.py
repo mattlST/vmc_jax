@@ -25,6 +25,7 @@ def jit_my_stuff():
     # at all times.
 
     global _mean_helper
+    global _var_helper
     global _covar_helper
     global _covar_var_helper
     global _covar_data_helper
@@ -43,7 +44,8 @@ def jit_my_stuff():
         statsPmapDevices = global_defs.myPmapDevices
 
         _mean_helper = jVMC.global_defs.pmap_for_my_devices(lambda data, w: jnp.tensordot(w, data, axes=(0,0)), in_axes=(0, 0))
-        _data_prep = jVMC.global_defs.pmap_for_my_devices(lambda data, w, mean: jax.vmap(lambda d, w, m: jnp.sqrt(w) * (d - m), in_axes=(0,0,None))(data, w, mean), in_axes=(0, 0, None))
+        _var_helper = jVMC.global_defs.pmap_for_my_devices(lambda data, w: jax.vmap(lambda d, w: w * jnp.abs(d)**2, in_axes=(0,0))(data, w), in_axes=(0, 0))
+        _data_prep = jVMC.global_defs.pmap_for_my_devices(lambda data, w, mean: jax.vmap(lambda d, w, m: jnp.sqrt(w) * (d), in_axes=(0,0,None))(data, w, mean), in_axes=(0, 0, None))
         _covar_helper = jVMC.global_defs.pmap_for_my_devices(
                                 lambda data1, data2:
                                     jnp.tensordot(
@@ -109,6 +111,7 @@ class SampledObs():
             self._weights = weights
             self._mean = mpi.global_sum( _mean_helper(observations,self._weights)[:, None,...]  )
             self._data = _data_prep(observations, self._weights, self._mean)
+            self._data_var = _var_helper(observations, self._weights)
         else:
             self._weights = weights
             self._data = observations
@@ -135,11 +138,11 @@ class SampledObs():
         return mpi.global_sum( _covar_helper(self._data, other._data)[:, None,...]  )
     
 
-    def var(self):
+    def var(self, p=1):
         """Returns the variance.
         """
 
-        return mpi.global_sum( jnp.abs(self._data)**2 )
+        return mpi.global_sum( self._data_var )
     
 
     def covar_data(self, other=None):

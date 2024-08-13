@@ -71,6 +71,7 @@ class Operator(metaclass=abc.ABCMeta):
         self._find_nonzero_pmapd = global_defs.pmap_for_my_devices(vmap(self._find_nonzero, in_axes=0))
         self._set_zero_to_zero_pmapd = global_defs.pmap_for_my_devices(jax.vmap(self.set_zero_to_zero, in_axes=(0, 0, 0)), in_axes=(0, 0, 0))
         self._array_idx_pmapd = global_defs.pmap_for_my_devices(jax.vmap(lambda data, idx: data[idx], in_axes=(0, 0)), in_axes=(0, 0))
+        self._get_o_loc_pmapd = global_defs.pmap_for_my_devices(self._get_o_loc)
         self._get_O_loc_pmapd = global_defs.pmap_for_my_devices(self._get_O_loc)
         self._flatten_pmapd = global_defs.pmap_for_my_devices(lambda x: x.reshape(-1, *x.shape[2:]))
         self._alloc_Oloc_cpx_pmapd = global_defs.pmap_for_my_devices(lambda s: jnp.zeros(s.shape[0],
@@ -158,7 +159,81 @@ class Operator(metaclass=abc.ABCMeta):
         self.sp = self._array_idx_pmapd(self.sp, idx[..., :jnp.max(self.numNonzero)])
 
         return self._flatten_pmapd(self.sp), self.matEl
+      
+    def _get_o_loc(self, matEl, psiSP):
+        # check this line
+        # add function analogous to "get_O_loc" 
+        return jax.vmap(lambda x, y: jnp.sum(x * y), in_axes=(0, 0))(matEl, psiSP.reshape(matEl.shape))
 
+    def get_o_loc(self, samples, psi, psiS=None, *args):
+
+        if psiS is None:
+            psiS = psi(samples)
+
+        if self.ElocBatchSize > 0:
+            return self.get_O_loc_batched(samples, psi, logPsiS, self.ElocBatchSize, *args)
+        else:
+            sampleOffdConfigs, _ = self.get_s_primes(samples, *args)
+            psiSP = psi(sampleOffdConfigs)
+            return self.get_o_loc_unbatched(psiSP)
+
+    def get_o_loc_unbatched(self, psiSP):
+
+        return self._get_o_loc_pmapd(self.matEl, psiSP)
+
+    def get_o_loc_batched(self, samples, psi, psiS, batchSize, *args):
+
+        oloc = None
+
+        numSamples = samples.shape[1]
+        numBatches = numSamples // batchSize
+        remainder = numSamples % batchSize
+
+        # Minimize mismatch
+        if remainder > 0:
+            batchSize = numSamples // (numBatches+1)
+            numBatches = numSamples // batchSize
+            remainder = numSamples % batchSize
+
+        for b in range(numBatches):
+
+            batch = self._get_config_batch_pmapd(samples, b * batchSize, batchSize)
+
+            ####################### is this needed? ##########################
+
+            # psiSbatch = self._get_logPsi_batch_pmapd(psiS, b * batchSize, batchSize)
+
+            ##################################################################
+
+            sp, _ = self.get_s_primes(batch, *args)
+
+            olocBatch = self.get_o_loc_unbatched(psi(sp))
+
+            if oloc is None:
+                if olocBatch.dtype == global_defs.tCpx:
+                    oloc = self._alloc_Oloc_cpx_pmapd(samples)
+                else:
+                    oloc = self._alloc_Oloc_real_pmapd(samples)
+
+            oloc = self._insert_oloc_batch_pmapd(oloc, olocBatch, b * batchSize)
+        
+        if remainder > 0:
+
+            batch = self._get_config_batch_pmapd(samples, numBatches * batchSize, remainder)
+            batch = global_defs.pmap_for_my_devices(expand_batch, static_broadcasted_argnums=(1,))(batch, batchSize)
+            psiSbatch = self._get_logPsi_batch_pmapd(psiS, numBatches * batchSize, numSamples % batchSize)
+            psiSbatch = global_defs.pmap_for_my_devices(expand_batch, static_broadcasted_argnums=(1,))(psiSbatch, batchSize)
+
+            sp, _ = self.get_s_primes(batch, *args)
+
+            olocBatch = self.get_o_loc_unbatched(psi(sp))
+        
+            olocBatch = self._get_Oloc_slice_pmapd(olocBatch, 0, remainder)
+
+            oloc = self._insert_Oloc_batch_pmapd(oloc, olocBatch, numBatches * batchSize)
+
+        return oloc
+  
     def _get_O_loc(self, matEl, logPsiS, logPsiSP):
 
         return jax.vmap(lambda x, y, z: jnp.sum(x * jnp.exp(z - y)), in_axes=(0, 0, 0))(matEl, logPsiS, logPsiSP.reshape(matEl.shape))

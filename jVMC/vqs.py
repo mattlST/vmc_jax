@@ -118,6 +118,7 @@ class NQS:
                         batchSize=1000, 
                         seed=1234, 
                         orbit=None, 
+                        psi_regularization=1e-6, 
                         avgFun=jVMC.nets.sym_wrapper.avgFun_Coefficients_Exp):
         """Initializes NQS class.
         
@@ -158,6 +159,8 @@ class NQS:
         self.initialized = False
         self.seed = seed
         self.parameters = None
+
+        self.psi_regularization = psi_regularization
 
         self._isGenerator = False
         if isinstance(net, collections.abc.Iterable):
@@ -208,6 +211,10 @@ class NQS:
                     self.dict_gradient_function = dict_gradient
                 else:
                     self.flat_gradient_function = flat_gradient_cpx_nonholo
+
+            #self.flat_gradient_function = flat_gradient_cpx_nonholo
+            #print(self.flat_gradient_function)
+            #print(self.dict_gradient_function)
 
             self.paramShapes = [(p.size, p.shape) for p in tree_flatten(self.parameters["params"])[0]]
             self.netTreeDef = jax.tree_util.tree_structure(self.parameters["params"])
@@ -342,10 +349,21 @@ class NQS:
             Real part of the NQS and current parameters
         """
 
-        evalReal = lambda p,x: jnp.real( self.net.apply(p,x) )
-        if "eval_real" in dir(self.net):
-            if callable(self.net.eval_real):
-                evalReal = lambda p,x: jnp.real( self.net.apply(p,x,method=self.net.eval_real) )
+        ################# TODO #####################
+        # construct regularized probability function
+        # and return it and take the log of the 
+        # regularized psi probability >mind the mu<
+        # take real part > apply cutoff > apply log
+        ################# TODO #####################
+
+        ################# Old Code #####################
+        # evalReal = lambda p,x: jnp.real( self.net.apply(p,x) )
+        # if "eval_real" in dir(self.net):
+        #     if callable(self.net.eval_real):
+        #         evalReal = lambda p,x: jnp.real( self.net.apply(p,x,method=self.net.eval_real) )
+        ################# Old Code #####################
+
+        evalReal = lambda p,x: self.net.apply(p,x)
 
         return evalReal, self.parameters
 
