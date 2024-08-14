@@ -163,6 +163,8 @@ class NQS:
         self.psi_regularization = psi_regularization
 
         self._isGenerator = False
+        self._isGumbel = False
+
         if isinstance(net, collections.abc.Iterable):
             net = jVMC.nets.two_nets_wrapper.TwoNets(net)
         if not orbit is None:
@@ -170,6 +172,10 @@ class NQS:
         if "sample" in dir(net):
             if callable(net.sample):
                 self._isGenerator = True
+                
+        if "_gumbel_step" in dir(net):
+            if callable(net._gumbel_step): # to change
+                self._isGumbel = True
         self.net = net
 
         self.batchSize = batchSize
@@ -486,7 +492,10 @@ class NQS:
     @property
     def is_generator(self):
         return self._isGenerator
-
+    @property
+    def is_gumbel(self):
+        return self._isGumbel
+    
     @property
     def params(self):
         if self.initialized:

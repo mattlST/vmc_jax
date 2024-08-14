@@ -223,6 +223,7 @@ class RWKV(nn.Module):
         #self.sfm = spinful_fermion_map(order=self.order)
         #self.sfu = spinful_fermion_unmap(order=self.order)
         # network layers
+        self.ldim=self.LocalHilDim
         self.embed = nn.Embed(self.LocalHilDim,
                               self.embedding_size,
                               param_dtype=self.dtype)

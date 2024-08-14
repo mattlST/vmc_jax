@@ -257,6 +257,19 @@ class MCSampler:
 
         if numSamples is None:
             numSamples = self.numSamples
+        if self.net.is_gumbel:
+            ### raise errror 
+            if global_defs.device_count()>1:
+                raise Exception('Non implemented')
+            if parameters is not None:
+                tmpP = self.net.params
+                self.net.set_parameters(parameters)
+            configs,coeffs,rescaled_coeffs = self._get_samples_gen(self.net.parameters, numSamples, multipleOf)
+            #coeffs = self.net(configs)
+            
+            if parameters is not None:
+                self.net.params = tmpP
+            return configs, coeffs, rescaled_coeffs# jnp.ones(configs.shape[:2]) / jnp.prod(jnp.asarray(configs.shape[:2]))
 
         if self.net.is_generator:
             if parameters is not None:
@@ -268,6 +281,7 @@ class MCSampler:
                 self.net.params = tmpP
             return configs, coeffs, jnp.ones(configs.shape[:2]) / jnp.prod(jnp.asarray(configs.shape[:2]))
 
+        
         configs, psi = self._get_samples_mcmc(parameters, numSamples, multipleOf)
         prob_eps = self._prob_regularization(psi, self.psi_regularization)
 
