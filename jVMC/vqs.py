@@ -160,13 +160,19 @@ class NQS:
         self.parameters = None
 
         self._isGenerator = False
+        self._isGumbel = False
+        
         if isinstance(net, collections.abc.Iterable):
             net = jVMC.nets.two_nets_wrapper.TwoNets(net)
         if not orbit is None:
             net = jVMC.nets.sym_wrapper.SymNet(net=net, orbit=orbit, avgFun=avgFun)
+            
         if "sample" in dir(net):
             if callable(net.sample):
                 self._isGenerator = True
+        if "_gumbel_step" in dir(net):
+            if callable(net._gumbel_step): # to change
+                self._isGumbel = True
         self.net = net
 
         self.batchSize = batchSize
@@ -464,7 +470,9 @@ class NQS:
         return paramOut
 
     # **  end def set_parameters
-
+    @property
+    def is_gumbel(self):
+        return self._isGumbel
     @property
     def is_generator(self):
         return self._isGenerator

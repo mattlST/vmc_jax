@@ -19,6 +19,10 @@ def avgFun_Coefficients_Sep(coeffs, sym_factor):
     return 0.5 * jnp.log(jnp.mean(jnp.exp(2 * re))) + 1j * jnp.angle(jnp.mean(jnp.exp(1j * im)))
 
 
+def avgFun_Coefficients_Sep_real(coeffs, sym_factor):
+    return 0.5 * jnp.log(jnp.mean(jnp.exp(2 * coeffs))) 
+
+
 class SymNet(nn.Module):
     """
     Wrapper module for symmetrization.
@@ -43,7 +47,8 @@ class SymNet(nn.Module):
 
         if "sample" in dir(self.net):
             self.sample = self._sample_fun
-
+        if "is_gumbel" in dir(self.net):
+            self._gumbel_step = self._gumbel_step_fun
         super().__post_init__()
 
 
@@ -62,7 +67,9 @@ class SymNet(nn.Module):
     
     
     def _sample_fun(self, *args):
-
         return self.net.sample(*args)
+        
+    def _gumbel_step_fun(self,*args):
+        return self.net._gumbel_step(self,*args)
 
 # ** end class SymNet
