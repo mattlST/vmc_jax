@@ -179,6 +179,9 @@ class TDVP:
         self.rhoVar = EO.var().ravel()
 
         self.snr = jnp.sqrt(jnp.abs(mpi.globNumSamples * (jnp.conj(self.VtF) * self.VtF) / self.rhoVar)).ravel()
+        print("EO: ", EO.mean(), ", ", EO.var())
+        print("rhoVar: ", self.rhoVar)
+        print("snr: ", self.snr)
 
     def solve(self, Eloc, gradients):
         # Get TDVP equation from MC data
@@ -265,23 +268,80 @@ class TDVP:
 
         # Get sample
         start_timing(outp, "sampling")
-        sampleConfigs, sampleLogPsi, p = self.sampler.sample(numSamples=numSamples)
+        sampleConfigs, samplePsi, pMean, pVar = self.sampler.sample(numSamples=numSamples)
         stop_timing(outp, "sampling", waitFor=sampleConfigs)
-
+        
         # Evaluate local energy
         start_timing(outp, "compute Eloc")
-        Eloc = hamiltonian.get_O_loc(sampleConfigs, psi, sampleLogPsi, t)
-        stop_timing(outp, "compute Eloc", waitFor=Eloc)
-        Eloc = SampledObs( Eloc, p)
+        ElocObs = hamiltonian.get_o_loc(sampleConfigs, psi, samplePsi, t)
+
+        stop_timing(outp, "compute Eloc", waitFor=ElocObs)
+        ElocM = SampledObs(ElocObs, pMean)
+        ElocV = SampledObs(ElocObs, pVar)
 
         # Evaluate gradients
         start_timing(outp, "compute gradients")
-        sampleGradients = psi.gradients(sampleConfigs)
-        stop_timing(outp, "compute gradients", waitFor=sampleGradients)
-        sampleGradients = SampledObs( sampleGradients, p)
+        sampleGradientsObs = psi.gradients(sampleConfigs)
+        stop_timing(outp, "compute gradients", waitFor=sampleGradientsObs)
 
-        start_timing(outp, "solve TDVP eqn.")
-        update, solverResidual, pinvCutoff = self.solve(Eloc, sampleGradients)
+        sampleGradientsM = SampledObs( sampleGradientsObs, pMean)
+        sampleGradientsV = SampledObs( sampleGradientsObs, pVar)
+
+        # print("Eloc: ", ElocM.mean(), ", ",  ElocV.var(), ", ", ElocV.var() - jnp.abs(ElocM.mean())**2)
+        # print("grad: ", sampleGradientsM.mean(), ", ",  sampleGradientsV.var(), ", ", sampleGradientsV.var() - jnp.abs(sampleGradientsM.mean())**2)
+        #
+        # print("F: ", (sampleGradientsV.covar(ElocV).ravel() - jnp.conj(sampleGradientsM.mean())*ElocM.mean()))
+        # print("S: ", (sampleGradientsV.covar() - jnp.abs(sampleGradientsM.mean())**2))
+
+        #start_timing(outp, "solve TDVP eqn.")
+        #update, solverResidual, pinvCutoff = self.solve(ElocM, sampleGradientsM)
+
+        ### Just brought down the tdvp_equation functions directly here ###
+
+        # def solve(self, Eloc, gradients):
+
+            # def get_tdvp_equation(self, Eloc, gradients):
+
+        self.ElocMean = ElocM.mean()[0]
+        self.ElocVar = (ElocV.var() - jnp.abs(ElocM.mean())**2)[0]
+
+        self.F0 = (-self.rhsPrefactor) * (sampleGradientsV.covar(ElocV).ravel() - jnp.conj(sampleGradientsM.mean())*ElocM.mean()).ravel()
+        F = self.makeReal(self.F0)
+
+        self.S0 = sampleGradientsV.covar() - jnp.abs(sampleGradientsM.mean())**2
+        S = self.makeReal(self.S0)
+
+        if self.diagonalShift > 1e-10:
+            S = S + jnp.diag(self.diagonalShift * jnp.diag(S))
+
+        self.S = S
+            # end get_tdvp_equation
+        F.block_until_ready()
+
+        # Transform TDVP equation to eigenbasis and compute SNR
+        self._transform_to_eigenbasis(self.S, F) #, Fdata)
+
+        # self._get_snr(ElocM, sampleGradientsM)
+
+        # Discard eigenvalues below numerical precision
+        self.invEv = jnp.where(jnp.abs(self.ev / self.ev[-1]) > 1e-14, 1. / self.ev, 0.)
+
+        # Set regularizer for singular value cutoff
+        regularizer = 1. / (1. + (self.pinvTol / jnp.abs(self.ev / self.ev[-1]))**6)
+
+        # ignore snr for now
+        # if not isinstance(self.sampler, jVMC.sampler.ExactSampler):
+        #     # Construct a soft cutoff based on the SNR
+        #     regularizer *= 1. / (1. + (self.snrTol / self.snr)**6)
+
+        update = jnp.real(jnp.dot(self.V, (self.invEv * regularizer * self.VtF)))
+        # update = jnp.real(jnp.dot(self.V, self.VtF))
+        
+
+        solverResidual = jnp.linalg.norm(self.S.dot(update) - F) / jnp.linalg.norm(F)
+
+        # end solve
+
         stop_timing(outp, "solve TDVP eqn.")
 
         if outp is not None:

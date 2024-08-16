@@ -127,7 +127,6 @@ class MCSampler:
         self.net(self.states)
 
         self.logProbFactor = logProbFactor
-        self.psi_regularization = self.net.psi_regularization
         self.mu = mu
         if mu < 0 or mu > 2:
             raise ValueError("mu must be in the range [0, 2]")
@@ -184,51 +183,6 @@ class MCSampler:
         """
         return mpi.globNumSamples
 
-    ############################## Old code ######################################
-    # def sample(self, parameters=None, numSamples=None, multipleOf=1):
-    #     """Generate random samples from wave function.
-    #
-    #     If supported by ``net``, direct sampling is peformed. Otherwise, MCMC is run \
-    #     to generate the desired number of samples. For direct sampling the real part \
-    #     of ``net`` needs to provide a ``sample()`` member function that generates \
-    #     samples from :math:`p_{\\mu}(s)`.
-    #
-    #     Sampling is automatically distributed accross MPI processes and available \
-    #     devices. In that case the number of samples returned might exceed ``numSamples``.
-    #
-    #     Arguments:
-    #         * ``parameters``: Network parameters to use for sampling.
-    #         * ``numSamples``: Number of samples to generate. When running multiple processes \
-    #         or on multiple devices per process, the number of samples returned is \
-    #         ``numSamples`` or more. If ``None``, the default number of samples is returned \
-    #         (see ``set_number_of_samples()`` member function).
-    #         * ``multipleOf``: This argument allows to choose the number of samples returned to \
-    #         be the smallest multiple of ``multipleOf`` larger than ``numSamples``. This feature \
-    #         is useful to distribute a total number of samples across multiple processors in such \
-    #         a way that the number of samples per processor is identical for each processor.
-    #
-    #     Returns:
-    #         A sample of computational basis configurations drawn from :math:`p_{\\mu}(s)`.
-    #     """
-    #
-    #     if numSamples is None:
-    #         numSamples = self.numSamples
-    #
-    #     if self.net.is_generator:
-    #         if parameters is not None:
-    #             tmpP = self.net.params
-    #             self.net.set_parameters(parameters)
-    #         configs = self._get_samples_gen(self.net.parameters, numSamples, multipleOf)
-    #         coeffs = self.net(configs)
-    #         if parameters is not None:
-    #             self.net.params = tmpP
-    #         return configs, coeffs, jnp.ones(configs.shape[:2]) / jnp.prod(jnp.asarray(configs.shape[:2]))
-    #
-    #     configs, logPsi = self._get_samples_mcmc(parameters, numSamples, multipleOf)
-    #     p = jnp.exp((1.0 / self.logProbFactor - self.mu) * jnp.real(logPsi))
-    #     return configs, logPsi, p / mpi.global_sum(p)
-    ############################## Old code ######################################
-
     def sample(self, parameters=None, numSamples=None, multipleOf=1):
         """Generate random samples from wave function.
 
@@ -281,22 +235,9 @@ class MCSampler:
                 self.net.params = tmpP
             return configs, coeffs, jnp.ones(configs.shape[:2]) / jnp.prod(jnp.asarray(configs.shape[:2]))
 
-        
-        configs, psi = self._get_samples_mcmc(parameters, numSamples, multipleOf)
-        prob_eps = self._prob_regularization(psi, self.psi_regularization)
-
-        p1 = jnp.conjugate(psi)/prob_eps
-        p2 = 1/prob_eps
-        Nsamples = mpi.globNumSamples
-
-        return configs, psi, p1/Nsamples, p2/Nsamples
-
-    def _prob_regularization(self, psi, psi_regularization):
-        ### TODO: rescale the cutoff by the maximal value of psi across all samples ###
-        abs2Psi = jnp.abs(psi)**2 - psi_regularization
-        mask = jnp.where(abs2Psi < 0, 0, 1)
-        prob = abs2Psi * mask + psi_regularization
-        return prob
+        configs, logPsi = self._get_samples_mcmc(parameters, numSamples, multipleOf)
+        p = jnp.exp((1.0 / self.logProbFactor - self.mu) * jnp.real(logPsi))
+        return configs, logPsi, p / mpi.global_sum(p)
 
     def _randomize_samples(self, samples, key, orbit):
         """ For a given set of samples apply a random symmetry transformation to each sample
@@ -385,7 +326,7 @@ class MCSampler:
         # return meta, configs.reshape((configs.shape[0]*configs.shape[1], -1))
         return meta, configs.reshape((configs.shape[0] * configs.shape[1],) + sampleShape)
 
-    def _sweep(self, states, accProb, key, numProposed, numAccepted, params, numSteps, updateProposer, updateProposerArg, net=None):
+    def _sweep(self, states, logAccProb, key, numProposed, numAccepted, params, numSteps, updateProposer, updateProposerArg, net=None):
 
         def perform_mc_update(i, carry):
 
@@ -395,10 +336,8 @@ class MCSampler:
             newStates = vmap(updateProposer, in_axes=(0, 0, None))(newKeys[:len(carry[0])], carry[0], updateProposerArg)
 
             # Compute acceptance probabilities
-            newAccProb = jax.vmap(lambda y: self._prob_regularization(net(params, y), self.psi_regularization), in_axes=(0,))(newStates)
-            # newAccProb = jax.vmap(lambda y: jnp.abs(net(params, y))**2, in_axes=(0,))(newStates) #self.net.psi_regularization
-            # newAccProb = jax.vmap(lambda y: self.mu * jnp.real(net(params, y)), in_axes=(0,))(newStates)
-            P = newAccProb / carry[1]
+            newLogAccProb = jax.vmap(lambda y: self.mu * jnp.real(net(params, y)), in_axes=(0,))(newStates)
+            P = jnp.exp(newLogAccProb - carry[1])
 
             # Roll dice
             newKey, carryKey = random.split(carryKey,)
@@ -413,21 +352,21 @@ class MCSampler:
                 return jax.lax.cond(acc, lambda x: x[1], lambda x: x[0], (old, new))
             carryStates = vmap(update, in_axes=(0, 0, 0))(accepted, carry[0], newStates)
 
-            carryAccProb = jnp.where(accepted == True, newAccProb, carry[1])
+            carryLogAccProb = jnp.where(accepted == True, newLogAccProb, carry[1])
 
-            return (carryStates, carryAccProb, carryKey, numProposed, numAccepted)
+            return (carryStates, carryLogAccProb, carryKey, numProposed, numAccepted)
 
-        (states, accProb, key, numProposed, numAccepted) =\
-            jax.lax.fori_loop(0, numSteps, perform_mc_update, (states, accProb, key, numProposed, numAccepted))
+        (states, logAccProb, key, numProposed, numAccepted) =\
+            jax.lax.fori_loop(0, numSteps, perform_mc_update, (states, logAccProb, key, numProposed, numAccepted))
 
-        return states, accProb, key, numProposed, numAccepted
+        return states, logAccProb, key, numProposed, numAccepted
 
     def _mc_init(self, netParams):
 
         # Initialize logAccProb
         net, _ = self.net.get_sampler_net()
         self.logAccProb = global_defs.pmap_for_my_devices(
-            lambda x: jax.vmap(lambda y: self._prob_regularization(net(netParams, y), self.psi_regularization), in_axes=(0,))(x)
+            lambda x: jax.vmap(lambda y: self.mu * jnp.real(net(netParams, y)), in_axes=(0,))(x)
         )(self.states)
 
         shape = (global_defs.device_count(),) + (1,)
