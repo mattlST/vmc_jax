@@ -44,6 +44,8 @@ def create(idx=0, lDim=2):
     return {'idx': idx, 'map': jnp.array([j+1 for j in range(lDim-1)]+[0], dtype=np.int32),
             'matEls': jnp.array([np.sqrt(j+1) for j in range(lDim-1)]+[0.], dtype=opDtype), 'diag': False}
 
+
+
 def destroy(idx=0, lDim=2):
     """Returns an annihlation operator
 
@@ -59,6 +61,38 @@ def destroy(idx=0, lDim=2):
 
     return {'idx': idx, 'map': jnp.array([0]+[j-1 for j in range(1,lDim)], dtype=np.int32),
             'matEls': jnp.array([0.]+ [np.sqrt(j) for j in range(1,lDim)], dtype=opDtype), 'diag': False}
+
+def Ed(idx=0, lDim=2):
+    """Returns a up-ladder operator
+
+    Args:
+
+    * ``idx``: Index of the local Hilbert space.
+    * ``lDim``: Dimension of local Hilbert space.
+
+    Returns:
+        Dictionary defining an identity operator
+
+    """
+
+    return {'idx': idx, 'map': jnp.array([j+1 for j in range(lDim-1)]+[0], dtype=np.int32),
+            'matEls': jnp.array([1. for j in range(lDim-1)]+[0.], dtype=opDtype), 'diag': False}
+def E(idx=0, lDim=2):
+    """Returns a down-ladder operator
+
+    Args:
+
+    * ``idx``: Index of the local Hilbert space.
+    * ``lDim``: Dimension of local Hilbert space.
+
+    Returns:
+        Dictionary defining an identity operator
+
+    """
+
+    return {'idx': idx, 'map': jnp.array([0] +[j-1 for j in range(lDim-1)], dtype=np.int32),
+            'matEls': jnp.array([0.]+[1. for j in range(lDim-1)], dtype=opDtype), 'diag': False}
+
 def number(idx=0, lDim=2):
     """Returns a number operator
 
