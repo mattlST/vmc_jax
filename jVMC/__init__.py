@@ -6,6 +6,8 @@ from . import mpi_wrapper
 from . import vqs
 from . import sampler
 from . import stats
+from . import MCSampler_mixed
+
 
 from .version import __version__
 from .global_defs import set_pmap_devices

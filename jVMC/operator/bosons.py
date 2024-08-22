@@ -6,6 +6,8 @@ import flax.linen as nn
 import numpy as np
 from functools import partial
 from jVMC.global_defs import tCpx
+from jVMC.operator import BranchFreeOperator, scal_opstr
+
 opDtype = tCpx
 
 
@@ -151,3 +153,51 @@ def propose_hopping_nn(key, s, info,particles,L):
     #print(idx_down)
     
     return s
+
+
+
+def BoseHubbard_Hamiltonian1D(L,J,U,lDim=2,mu=0,V=0):
+    """
+    L: number of sites
+    J: next-neighbour hopping
+    U: interaction
+    mu: chemical potentials
+    V: non-local next-neighbour interaction
+    """
+    if not hasattr(mu, "__len__"):
+        mu = [mu]*L
+    if not hasattr(V, "__len__"):
+        V = [V]*L    
+    hamiltonian1D = BranchFreeOperator(lDim=lDim)
+    for l in range(L):    
+        hamiltonian1D.add(scal_opstr(-J, (create(l,lDim), destroy((l + 1) % L,lDim))))
+        hamiltonian1D.add(scal_opstr(-J, (create((l+1)%L,lDim), destroy((l),lDim))))
+        
+        hamiltonian1D.add(scal_opstr(U/2., (number(l,lDim ),number(l,lDim )) ))
+        hamiltonian1D.add(scal_opstr(-U/2., (number(l,lDim ),) ))
+        if np.linalg.norm(mu)>1e-10:
+            hamiltonian1D.add(scal_opstr(mu[l], (number(l,lDim ),) ))
+        if np.linalg.norm(V)>1e-10:
+            hamiltonian1D.add(scal_opstr(V[l], (number(l,lDim), number((l + 1) % L,lDim))))
+    return hamiltonian1D
+
+def interactionTerm(L,lDim=2):
+    iTerm = BranchFreeOperator(lDim=lDim)
+    for l in range(L):    
+        iTerm.add(scal_opstr(1., (number(l,lDim ),number(l,lDim )) ))
+        iTerm.add(scal_opstr(-1., (number(l,lDim ),) ))
+    return iTerm
+    
+def hoppingTerm(L,lDim=2):
+    jTerm = BranchFreeOperator(lDim=lDim)
+    for l in range(L):    
+        jTerm.add(scal_opstr(-1, (create(l,lDim), destroy((l + 1) % L,lDim))))
+        jTerm.add(scal_opstr(-1, (create((l+1)%L,lDim), destroy((l),lDim))))
+        
+    return jTerm
+def occupations(L,lDim=2):
+    occ = [BranchFreeOperator(lDim=lDim) for l in range(L)]
+    for l in range(L):    
+        occ[l].add(scal_opstr(1, (number(l,lDim), )))     
+    return occ
+

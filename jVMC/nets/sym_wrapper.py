@@ -13,9 +13,21 @@ def avgFun_Coefficients_Log(coeffs, sym_factor):
     return jnp.mean(coeffs)
 
 
+def avgFun_Coefficients_Sep_complex(coeffs, sym_factor):
+    re = jnp.real(coeffs)
+    im = jnp.imag(coeffs)
+    
+    a_coef = jnp.mean(sym_factor*jnp.exp(2*coeffs))
+    #normL = jnp.linalg.norm(a_coef)/jnp.linalg.norm(jnp.exp(coeffs))
+    normL = 1/jnp.linalg.norm(jnp.exp(coeffs))
+    return jnp.log(a_coef/normL)
+    #return jnp.log(jnp.abs(a_coef)) + 1j* jnp.angle(a_coef)
+    #return 0.5 * jnp.log(jnp.mean(jnp.exp(2 * re))) + 1j * jnp.angle(jnp.mean(jnp.exp(1j * im)))*sym_factor
+
 def avgFun_Coefficients_Sep(coeffs, sym_factor):
     re = jnp.real(coeffs)
     im = jnp.imag(coeffs)
+    #jax.debug.print("{x}",x=sym_factor)
     return 0.5 * jnp.log(jnp.mean(jnp.exp(2 * re))) + 1j * jnp.angle(jnp.mean(jnp.exp(1j * im)))
 
 def avgFun_Coefficients_Sep_real(coeffs, sym_factor):
@@ -65,5 +77,7 @@ class SymNet(nn.Module):
     def _sample_fun(self, *args):
 
         return self.net.sample(*args)
+
+
 
 # ** end class SymNet
