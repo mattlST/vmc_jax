@@ -44,6 +44,7 @@ def create(idx=0, lDim=2):
     return {'idx': idx, 'map': jnp.array([j+1 for j in range(lDim-1)]+[0], dtype=np.int32),
             'matEls': jnp.array([np.sqrt(j+1) for j in range(lDim-1)]+[0.], dtype=opDtype), 'diag': False}
 
+
 def destroy(idx=0, lDim=2):
     """Returns an annihlation operator
 
@@ -59,6 +60,7 @@ def destroy(idx=0, lDim=2):
 
     return {'idx': idx, 'map': jnp.array([0]+[j-1 for j in range(1,lDim)], dtype=np.int32),
             'matEls': jnp.array([0.]+ [np.sqrt(j) for j in range(1,lDim)], dtype=opDtype), 'diag': False}
+    
 def number(idx=0, lDim=2):
     """Returns a number operator
 
@@ -89,10 +91,41 @@ def interaction(idx=0, lDim=2):
         Dictionary defining a number operator
 
     """
-
     return {'idx': idx, 'map': jnp.array([j for j in range(lDim)], dtype=np.int32),
             'matEls': jnp.array([j*(j-1) for j in range(lDim)], dtype=opDtype), 'diag': True}
 
+def Ed(idx=0, lDim=2):
+    """Returns a up-ladder operator
+
+    Args:
+
+    * ``idx``: Index of the local Hilbert space.
+    * ``lDim``: Dimension of local Hilbert space.
+
+    Returns:
+        Dictionary defining an identity operator
+
+    """
+    return {'idx': idx, 'map': jnp.array([j+1 for j in range(lDim-1)]+[0], dtype=np.int32),
+            'matEls': jnp.array([1. for j in range(lDim-1)]+[0.], dtype=opDtype), 'diag': False}
+def E(idx=0, lDim=2):
+    """Returns a down-ladder operator
+
+    Args:
+
+    * ``idx``: Index of the local Hilbert space.
+    * ``lDim``: Dimension of local Hilbert space.
+
+    Returns:
+        Dictionary defining an identity operator
+
+    """
+
+    return {'idx': idx, 'map': jnp.array([0] +[j-1 for j in range(1,lDim)], dtype=np.int32),
+            'matEls': jnp.array([0.]+[1. for j in range(lDim-1)], dtype=opDtype), 'diag': False}
+
+
+   
 ################
 
 def BoseHubbard_Hamiltonian1D(L,J,U,lDim=2,mu=0,V=0):
@@ -124,7 +157,7 @@ def interactionTerm(L,lDim=2):
     iTerm = BranchFreeOperator(lDim=lDim)
     for l in range(L):    
         iTerm.add(scal_opstr(1., (number(l,lDim ),number(l,lDim )) ))
-        iTerm.add(scal_opstr(1., (number(l,lDim ),) ))
+        iTerm.add(scal_opstr(-1., (number(l,lDim ),) ))
     return iTerm
     
 def hoppingTerm(L,lDim=2):
@@ -142,7 +175,6 @@ def occupations(L,lDim=2):
 
 
 ################
-
 
 def propose_hopping(key, s, info,particles):
     # propose hopping of a single particle from one site to a random site 

@@ -211,6 +211,19 @@ class MCSampler:
 
         if numSamples is None:
             numSamples = self.numSamples
+        if self.net.is_gumbel:
+            ### raise errror 
+            if global_defs.device_count()>1:
+                raise Exception('Non implemented')
+            if parameters is not None:
+                tmpP = self.net.params
+                self.net.set_parameters(parameters)
+            configs,coeffs,rescaled_coeffs = self._get_samples_gen(self.net.parameters, numSamples, multipleOf)
+            #coeffs = self.net(configs)
+            
+            if parameters is not None:
+                self.net.params = tmpP
+            return configs, coeffs, rescaled_coeffs# jnp.ones(configs.shape[:2]) / jnp.prod(jnp.asarray(configs.shape[:2]))
 
         if self.net.is_generator:
             if parameters is not None:
@@ -247,7 +260,11 @@ class MCSampler:
         if not str(numSamples) in self._randomize_samples_jitd:
             self._randomize_samples_jitd[str(numSamples)] = global_defs.pmap_for_my_devices(self._randomize_samples, static_broadcasted_argnums=(), in_axes=(0, 0, None))
 
+
         if not self.orbit is None:
+            if self.net.is_gumbel:
+                return self._randomize_samples_jitd[str(numSamples)](samples[0], tmpKey2, self.orbit),samples[1],samples[2]
+        
             return self._randomize_samples_jitd[str(numSamples)](samples, tmpKey2, self.orbit)
         
         return samples

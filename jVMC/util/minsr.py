@@ -32,7 +32,8 @@ class MinSR:
         self.diagonalShift = diagonalShift
         self.diagonalMulti = diagonalMulti
         self.diagonalizeOnDevice = diagonalizeOnDevice
-
+        self.diagonalShift = diagonalShift
+        self.diagonalMulti = diagonalMulti
         self.metaData = None
         self.printFLag = False
         
@@ -64,14 +65,15 @@ class MinSR:
         Uses the techique proposed in arXiv:2302.01941 to compute the updates.
         Efficient only if number of samples :math:`\\ll` number of parameters.
         """
-        
+
         T = gradients.tangent_kernel() 
+
         if self.diagonalMulti>1e-10:
             T = T + jnp.diag(self.diagonalMulti * jnp.diag(T))
 
         if self.diagonalShift > 1e-10:
             T = T + self.diagonalShift * jnp.identity(T.shape[0])
-        
+
         T_inv = jnp.linalg.pinv(T, rcond=self.pinvTol, hermitian=True)
 
         eloc_all = mpi.gather(eloc._data).reshape((-1,))

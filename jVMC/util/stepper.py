@@ -36,7 +36,7 @@ class Euler:
         """
 
         dy = f(yInitial, t, **rhsArgs, intStep=0)
-
+        #print(dy)
         return yInitial + self.dt * dy, self.dt
 
 # end class Euler
