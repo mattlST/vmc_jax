@@ -7,5 +7,5 @@ from jVMC.nets.rnn2d_general import *
 from jVMC.nets.sym_wrapper import *
 from jVMC.nets.two_nets_wrapper import *
 from jVMC.nets.target import *
-
+from jVMC.nets.RWKV import *
 from . import bosons
