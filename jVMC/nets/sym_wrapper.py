@@ -52,7 +52,6 @@ class SymNet(nn.Module):
     orbit: LatticeSymmetry
     net: callable
     avgFun: callable = avgFun_Coefficients_Exp
-
     def __post_init__(self):
 
         if "sample" in dir(self.net):

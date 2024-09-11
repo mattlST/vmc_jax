@@ -285,7 +285,7 @@ class CpxRWKV(nn.Module):
         self.ldim =self.LocalHilDim
         self.lDim = self.LocalHilDim
         
-    def __call__(self, s: Array, block_states: Array = None, output_state: bool = False) -> Array:
+    def __call__(self, s: Array, block_states: Array = None, output_state: bool = False,**kwargs) -> Array:
         # the helper method allows to use nn.jit with static_argnames
         return self.forward_with_state(s, block_states, output_state)
 
