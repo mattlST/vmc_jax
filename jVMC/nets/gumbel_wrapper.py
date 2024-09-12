@@ -75,17 +75,15 @@ class gumbel_wrapper(nn.Module):
         #sample = jnp.array([sample[0].at[position].set(l) for l in jnp.arange(self.LocalHilDim)])
         #right shifted input
         #inputt = jnp.array([jnp.pad(sample[0,:-1],(1,0))])
-        logitnew = None
+        logitnew = jnp.zeros_like(logits)
+        sample = jnp.array([sample[0].at[position].set(l) for l in jnp.arange(self.LocalHilDim)])
+        #right shifted input
+        inputt = jnp.array([jnp.pad(sample[0,:-1],(1,0))])
+        
         if self.is_particle:
-            sample = jnp.array([sample[0].at[position].set(l) for l in jnp.arange(self.LocalHilDim)])
-            #right shifted input
-            inputt = jnp.array([jnp.pad(sample[0,:-1],(1,0))])
-            cumsum = jnp.sum(sample[0,:]+jnp.abs(sample[0,:]))//2
+            cumsum = jnp.sum(inputt+jnp.abs(inputt))//2
             logitnew, next_states = self(inputt[:,position],block_states = states, output_state=True,cumsum=cumsum,position=position)
         else:
-            sample = jnp.array([sample[0].at[position].set(l) for l in jnp.arange(self.LocalHilDim)])
-            #right shifted input
-            inputt = jnp.array([jnp.pad(sample[0,:-1],(1,0))])
             logitnew, next_states = self(inputt[:,position],block_states = states, output_state=True)
         logitnew = logits[0] + logitnew 
         
@@ -150,6 +148,7 @@ class gumbel_wrapper(nn.Module):
         re_weights = jnp.nan_to_num(jnp.exp(logits[:,0]) /(-jnp.expm1(-jnp.exp(logits[:,0]-kappa))),0)
         
         return samples[:,0,:],logits[:,0]*self.net.logProbFactor,re_weights/jnp.sum(re_weights)
+        #return samples[:,0,:],logits[:,0],re_weights/jnp.sum(re_weights)
 
     @partial(nn.scan,
              variable_broadcast='params',

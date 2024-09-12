@@ -42,36 +42,37 @@ class particle_conservation(nn.Module):
     def __call__(self,*args,**kwargs):
         
         if "output_state" in kwargs:
+            #jax.debug.print("eeee")
             cumsum_left = self.Q - kwargs["cumsum"]
             position = kwargs["position"]
-            del kwargs["position"],kwargs["cumsum"]
-            x, state = self.net(*args,**kwargs)
             must_give = nn.relu(cumsum_left-self.max_particles[position])
             can_give = jnp.minimum(cumsum_left, self.LocalHilDim-1)
             mask = (self.must_mask[must_give] + 
                         self.can_mask[can_give.astype(int)]) 
-            
+            del kwargs["position"],kwargs["cumsum"]
+            x, state = self.net(*args,**kwargs)
             ##############################################
             x = x - mask ** jnp.inf
-            
+            x = log_softmax(x)
             return x, state
 
         else: 
             #flagOutput = False #kwargs["output_state"]
+            #jax.debug.print('ddd')
             kwargs["output_state"] =True
             s = args[0]
             y = jnp.pad(s[:-1],(1,0),mode='constant',constant_values=0)
             cum_sum = self.Q - jnp.cumsum(y)
             #x, state = self.net(*args,output_state=True,**kwargs)
-            x, state = self.net(*args,**kwargs)
+            x, state = self.net(y,**kwargs)
             
             must_give = nn.relu(cum_sum-self.max_particles)
             can_give = jnp.minimum(cum_sum, self.LocalHilDim-1)
             mask = (self.must_mask[must_give] + 
                         self.can_mask[can_give.astype(int)]) 
             x = x - mask ** jnp.inf
-            x = log_softmax(x)
-            x *= self.logProbFactor
+            x = log_softmax(x)*self.logProbFactor
+            #x *= self.logProbFactor
             return (jnp.take_along_axis(x, jnp.expand_dims(s, -1), axis=-1)
                                     .sum(axis=-2)
                                     .squeeze(-1))
@@ -91,18 +92,21 @@ class particle_conservation(nn.Module):
         """
         def generate_sample(key):
             key = jrnd.split(key, self.L)
-            logits, carry = self.net(jnp.zeros(1,dtype=int),block_states = None, output_state=True)
-            must_give = nn.relu(self.Q-self.max_particles[0])
-            can_give = jnp.minimum(self.Q, self.LocalHilDim-1)
-            mask = (self.must_mask[must_give] + 
-                        self.can_mask[can_give.astype(int)]) 
+            logits, carry = self(jnp.zeros(1,dtype=int),block_states = None, output_state=True,cumsum=0,position=0)
+            #logits, carry = self.net(jnp.zeros(1,dtype=int),block_states = None, output_state=True)
+            #must_give = nn.relu(self.Q-self.max_particles[0])
+            #can_give = jnp.minimum(self.Q, self.LocalHilDim-1)
+            #mask = (self.must_mask[must_give] + 
+            #            self.can_mask[can_give.astype(int)]) 
             
             ##############################################
-            logits = logits - mask ** jnp.inf
+            #logits = logits - mask ** jnp.inf
             choice = jrnd.categorical(key[0], logits.ravel()) # abide by the indexing convention and apply -1
-            s_cumsum = self.Q - choice # create cumsum of the quantum number
+            #s_cumsum = self.Q - choice # create cumsum of the quantum number
+            cumsum = choice # create cumsum of the quantum number
             
-            _, s = self._scanning_fn((jnp.expand_dims(choice,0),carry,s_cumsum),(key[1:],jnp.arange(1,self.L)))
+            #_, s = self._scanning_fn((jnp.expand_dims(choice,0),carry,s_cumsum),(key[1:],jnp.arange(1,self.L)))
+            _, s = self._scanning_fn((jnp.expand_dims(choice,0),carry,cumsum),(key[1:],jnp.arange(1,self.L)))
             return jnp.concatenate([jnp.expand_dims(choice,0),s])
 
         # get the samples
@@ -115,16 +119,17 @@ class particle_conservation(nn.Module):
              variable_broadcast='params',
              split_rngs={'params': False})
     def _scanning_fn(self, carry, key):
-        logits, next_states = self.net(carry[0],block_states = carry[1], output_state=True)
+        logits, next_states = self(carry[0],block_states = carry[1], output_state=True,cumsum=carry[2],position=key[1])
         
-        must_give = nn.relu(carry[2]-self.max_particles[key[1]])
-        can_give = jnp.minimum(carry[2], self.LocalHilDim-1)
-        mask = (self.must_mask[must_give] + 
-                    self.can_mask[can_give.astype(int)]) 
+        #must_give = nn.relu(carry[2]-self.max_particles[key[1]])
+        #can_give = jnp.minimum(carry[2], self.LocalHilDim-1)
+        #mask = (self.must_mask[must_give] + 
+        #            self.can_mask[can_give.astype(int)]) 
         
         ##############################################
-        logits = logits - mask ** jnp.inf
+        #logits = logits - mask ** jnp.inf
         choice = jrnd.categorical(key[0], logits.ravel().real) # abide by the indexing convention
         ##############################################
-        s_cumsum = carry[2] - choice
-        return (jnp.expand_dims(choice,0), next_states, s_cumsum), choice
+        s_cumsum = carry[2] + choice
+        #return (jnp.expand_dims(choice,0), next_states, s_cumsum), choice
+        return (jnp.expand_dims(choice,0), next_states,s_cumsum), choice
