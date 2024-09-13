@@ -266,7 +266,7 @@ class Infidelity(op.Operator):
 
         return map_function        
 
-    def get_FP_loc(self, psi):
+    def get_FP_loc(self, psi, sample_chi = True):
         """ Compute :math:`F^\\chi` given the target wave function :math:`\\chi` and trial wave function :math:`\\psi`.
 
         Arguments:
@@ -277,6 +277,9 @@ class Infidelity(op.Operator):
             * :math:`F^\\chi`    
         """
 
+        ######## get samples ########
+        if sample_chi:
+            self.chi_s, self.chi_logChi, self.chi_p = self.chiSampler.sample()
         # confirm that the function was called
         self._FP_loc_check = True
         # control variates stabilization of the local infidelity
