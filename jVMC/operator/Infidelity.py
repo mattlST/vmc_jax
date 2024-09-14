@@ -349,21 +349,36 @@ class Infidelity(op.Operator):
 
         # compute the gradient throught the covariance
         Opsi = psi.gradients(self._flatten_pmapd(self.sp))
-        grads = SampledObs(Opsi, psi_p)
-        Floc = SampledObs(self.psi_Floc, psi_p)
-        grad = 2.*grads.covar(Floc)*self.Exp_chi_Floc
-
-        if getCVgrad and self.getCV: 
+        
+        if getCVgrad:
+            ###########################################################################
+        #if getCVgrad and self.getCV: 
             # gradient with CV
-            Ochi = psi.gradients(self.chi_s) 
-            FlocCV = SampledObs(self.psi_FlocCV, psi_p)
-            self.gradCV = grads.covar(FlocCV) * self.Exp_chi_FlocCV
-            chi_FgradsCV = SampledObs(Ochi.conjugate() * self.chi_FlocCV.reshape(*self.chi_FlocCV.shape,1), self.chi_p) 
-            corr_grad_minus = chi_FgradsCV.mean() * mpi.global_mean(self.psi_FlocCV,psi_p)
-            psi_Fgrads = SampledObs(Opsi * self.psi_FlocCV.reshape(*self.psi_FlocCV.shape,1), psi_p)
-            corr_grad_plus = psi_Fgrads.mean() * self.Exp_chi_FlocCV
-            self.gradCV += (corr_grad_minus.reshape(self.gradCV.shape) - corr_grad_plus.reshape(self.gradCV.shape))
-            grad += - CVscale * self.CVc * self.gradCV.real
+            # Ochi = psi.gradients(self.chi_s) 
+            # FlocCV = SampledObs(self.psi_FlocCV, psi_p)
+            # self.gradCV = grads.covar(FlocCV) * self.Exp_chi_FlocCV
+            # chi_FgradsCV = SampledObs(Ochi.conjugate() * self.chi_FlocCV.reshape(*self.chi_FlocCV.shape,1), self.chi_p) 
+            # corr_grad_minus = chi_FgradsCV.mean() * mpi.global_mean(self.psi_FlocCV,psi_p)
+            # psi_Fgrads = SampledObs(Opsi * self.psi_FlocCV.reshape(*self.psi_FlocCV.shape,1), psi_p)
+            # corr_grad_plus = psi_Fgrads.mean() * self.Exp_chi_FlocCV
+            # self.gradCV += (corr_grad_minus.reshape(self.gradCV.shape) - corr_grad_plus.reshape(self.gradCV.shape))
+            # grad += - CVscale * self.CVc * self.gradCV.real
+            ###########################################################################
+            grads = SampledObs(Opsi.real, psi_p)
+            Floc = SampledObs(self.psi_Floc, psi_p)
+            ########################################
+            grad = (2.*grads.covar(Floc)*self.Exp_chi_Floc).squeeze(-1) 
+            Opsi = psi.gradients(self._flatten_pmapd(self.sp))
+            psi_grads = SampledObs(Opsi * jnp.expand_dims(self.psi_Floc,-1), psi_p)
+            Ochi = psi.gradients(self.chi_s)
+            chi_grads = SampledObs(Ochi * jnp.expand_dims(self.chi_Floc,-1), self.chi_p)
+            grad = grad + (chi_grads.mean()*Floc.mean().squeeze(-1) - psi_grads.mean()*self.Exp_chi_Floc)
+            # for the output
+            grads = SampledObs(Opsi, psi_p)
+        else:
+            grads = SampledObs(Opsi, psi_p)
+            Floc = SampledObs(self.psi_Floc, psi_p)
+            grad = (2.*grads.covar(Floc)*self.Exp_chi_Floc).squeeze(-1) 
 
         return -1. * (grad).real, grads
         
