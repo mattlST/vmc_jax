@@ -612,6 +612,7 @@ class Infidelity(op.Operator):
         # variance
         varF2 = mpi.global_mean(self.chi_F2locCV,self.chi_p) * mpi.global_mean(self.psi_F2locCV,psi_p)
         varF2 -= (self.Exp_chi_FlocCV * Exp_psi_FlocCV)**2
+        self._varF2 = varF2
         # combine
         self.CVc = self.rmean.update( - abs(covarFF2.real / varF2.real))
         # there is no output
