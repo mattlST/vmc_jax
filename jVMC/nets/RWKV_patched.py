@@ -1,5 +1,5 @@
 from functools import partial
-from itertools import repeat
+from itertools import repeat, product
 from typing import Any, List, Optional, Tuple
 
 import flax
@@ -47,6 +47,7 @@ class MultiHeadTimeMixing(nn.Module):
     num_heads: int = 1
     dtype: type = tReal
     bias: type = False
+    init_variance: float = 0.1
 
     def setup(self):
         #####################################################
@@ -86,11 +87,15 @@ class MultiHeadTimeMixing(nn.Module):
         #####################################################
         # set up the linear RKV layers and the output layer
         #####################################################
-        self.layernorm = nn.LayerNorm(epsilon=1e-5, param_dtype=self.dtype)
-        self.key = nn.Dense(self.num_heads * self.embedding_size, use_bias=False, param_dtype=self.dtype)
-        self.value = nn.Dense(self.num_heads * self.embedding_size, use_bias=False, param_dtype=self.dtype)
-        self.receptance = nn.Dense(self.num_heads * self.embedding_size, use_bias=False, param_dtype=self.dtype)
-        self.output = nn.Dense(self.embedding_size, use_bias=False, param_dtype=self.dtype)
+        # self.layernorm = nn.LayerNorm(epsilon=1e-5, param_dtype=self.dtype)
+        self.key = nn.Dense(self.num_heads * self.embedding_size, use_bias=False, param_dtype=self.dtype,
+                            kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"))
+        self.value = nn.Dense(self.num_heads * self.embedding_size, use_bias=False, param_dtype=self.dtype,
+                            kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"))
+        self.receptance = nn.Dense(self.num_heads * self.embedding_size, use_bias=False, param_dtype=self.dtype,
+                            kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"))
+        self.output = nn.Dense(self.embedding_size, use_bias=False, param_dtype=self.dtype,
+                            kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"))
         self.head_collapse = self.param(
             'head_collapse', initialize_to_value(jnp.ones(self.num_heads), self.dtype))
 
@@ -146,15 +151,19 @@ class ChannelMixing(nn.Module):
     hidden_size: int = 8
     dtype: type = tReal
     bias: bool = False
+    init_variance: float = 0.1
 
     def setup(self):
         #####################################################
         # set up the linear RKV layers and the output layer
         #####################################################
-        self.layernorm = nn.LayerNorm(epsilon=1e-5,  param_dtype=self.dtype,name="LayerNormP")
-        self.key = nn.Dense(self.hidden_size, use_bias=False, param_dtype=self.dtype,name="KeyP")
-        self.receptance = nn.Dense(self.embedding_size, use_bias=False, param_dtype=self.dtype,name="ReceptanceP")
-        self.value = nn.Dense(self.embedding_size, use_bias=self.bias, param_dtype=self.dtype,name="ValueP")
+        # self.layernorm = nn.LayerNorm(epsilon=1e-5,  param_dtype=self.dtype,name="LayerNormP")
+        self.key = nn.Dense(self.hidden_size, use_bias=self.bias, param_dtype=self.dtype,name="KeyP",
+                            kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"))
+        self.receptance = nn.Dense(self.embedding_size, use_bias=False, param_dtype=self.dtype,name="ReceptanceP",
+                            kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"))
+        self.value = nn.Dense(self.embedding_size, use_bias=False, param_dtype=self.dtype,name="ValueP",
+                            kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"))
 
         #####################################################
         # initialize the \mu for time mixing
@@ -180,7 +189,6 @@ class ChannelMixing(nn.Module):
         r = nn.sigmoid(self.receptance(xr))
         # square ReLU activation
         k = jnp.square(nn.elu(self.key(xk))+1.) # <- this dangerously explodes the gradients
-        # k = jnp.square(nn.gelu(self.key(xk))) # <- this dangerously explodes the gradients
         # k = jnp.square(nn.relu(self.key(xk))) # <- this is the original
         # compute the output and recombine with the input
         out = x + r * self.value(k)
@@ -207,21 +215,26 @@ class RWKVBlock(nn.Module):
     hidden_size: int = 8
     num_heads: int = 1
     bias: bool = False
+    init_variance: float = 0.1
 
     def setup(self):
         self.time_mix = MultiHeadTimeMixing(layer_depth=self.layer_num,
                                    embedding_size=self.embedding_size,
                                    num_layers=self.num_layers,
                                    num_heads=self.num_heads,
-                                   bias=self.bias,
+                                   bias=False,
+                                   init_variance=self.init_variance,
                                    dtype=self.dtype)
         self.channel_mix = ChannelMixing(layer_depth=self.layer_num,
+                                   bias=False,
                                    embedding_size=self.embedding_size,
                                    num_layers=self.num_layers,
                                    hidden_size=self.hidden_size,
+                                   init_variance=self.init_variance,
                                    dtype=self.dtype)
-        self.waist = nn.Dense(self.hidden_size, use_bias=False,name="waist", param_dtype=self.dtype)
-        self.torso = nn.Dense(self.embedding_size, use_bias=False,name="torso", param_dtype=self.dtype)
+        # intermediate non-linearity
+        # self.waist = nn.Dense(self.hidden_size,name="waist", use_bias=False, param_dtype=self.dtype)
+        # self.torso = nn.Dense(self.embedding_size,name="torso", use_bias=False, param_dtype=self.dtype)
 
     def __call__(self, x, block_state):
         """
@@ -237,15 +250,48 @@ class RWKVBlock(nn.Module):
 
         time_mix_state, channel_mix_state = block_state
         x, time_mix_state = self.time_mix(x, time_mix_state)
-        x, channel_mix_state = self.channel_mix(x, channel_mix_state)
-        y = self.waist(x)
-        y = nn.gelu(self.torso(y))
-        return x + y, (time_mix_state, channel_mix_state)
+        # x, channel_mix_state = self.channel_mix(x, channel_mix_state)
+        # y = nn.gelu(self.waist(x))
+        # y = self.torso(y)
+        # return x + y, (time_mix_state, channel_mix_state)
+        return x, (time_mix_state, channel_mix_state)
+
+class _TransformerBlock(Module):
+    """The transformer decoder block."""
+    
+    embeddingDim: int
+    nHeads: int
+    paramDType: type = tReal
+    init_variance: float = 0.1
+
+    @compact
+    def __call__(self, x: Array) -> Array:
+        x = x + nn.MultiHeadDotProductAttention(
+            self.nHeads, param_dtype=self.paramDType
+        )(
+            x,
+            x,
+            mask=make_causal_mask(
+                zeros((x.shape[-2]), self.paramDType), dtype=self.paramDType
+            ),
+        )
+        y = Sequential(
+            [
+                Dense(4*self.embeddingDim, param_dtype=self.paramDType,
+                      kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal")),
+                gelu,
+                Dense(self.embeddingDim, param_dtype=self.paramDType,
+                     kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal")),
+            ]
+        )(x)
+        x = x + y
+        return x
 
 class CpxRWKV(nn.Module):
     # Main
     L: int = 1 # system size
-    LocalHilDim: int = 2
+    LHilDim: int = 2
+    patch_size: int = 1
     hidden_size: int = 8
     num_heads: int = 1
     dtype: type = tReal
@@ -258,16 +304,30 @@ class CpxRWKV(nn.Module):
     one_hot: bool = False
     # bias
     bias: bool = False
-    __name__: str = "RWKV"
+    # linear output
+    lin_out: bool = False
+    # sampling temperature
+    temperature: float = 1.0
+    # init variance
+    init_variance: float = 0.1
 
     def setup(self):
+        # set up patching
+        if self.L % self.patch_size != 0:
+            raise ValueError("The system size must be divisible by the patch size")
+        self.patch_states = jnp.array(list(product(range(self.LHilDim),repeat=self.patch_size)))
+        self.LocalHilDim = self.LHilDim ** self.patch_size
+        self.PL = self.L // self.patch_size
+        index_array = self.LHilDim**(jnp.arange(self.patch_size)[::-1])
+        self.index_map = jax.vmap(lambda s: index_array.dot(s))
+        # select type of embedding
         if self.one_hot:
             self.embed = nn.Dense(self.embedding_size, use_bias=False,name="Embedding", param_dtype=self.dtype)
         else:
             self.embed = nn.Embed(self.LocalHilDim,
                                self.embedding_size,
                                param_dtype=self.dtype)
-        self.input_layernorm = nn.LayerNorm(epsilon=1e-5,name="InputLayerNorm",param_dtype=self.dtype)
+        #self.input_layernorm = nn.LayerNorm(epsilon=1e-5,name="InputLayerNorm",param_dtype=self.dtype)
         self.blocks = [
                         RWKVBlock(layer_num=i,
                               embedding_size=self.embedding_size,
@@ -275,18 +335,24 @@ class CpxRWKV(nn.Module):
                               num_layers=self.num_layers,
                               num_heads=self.num_heads,
                               bias=self.bias,
+                              init_variance=self.init_variance,
                               dtype=self.dtype)
                         for i in range(self.num_layers)
                        ]
-        self.output_layernorm = nn.LayerNorm(epsilon=1e-5,name="OutputLayerNorm", param_dtype=self.dtype)
-        self.neck = nn.Dense(self.hidden_size, use_bias=self.bias,name="Neck", param_dtype=self.dtype)
-        self.head = nn.Dense(self.LocalHilDim, use_bias=False,name="Head", param_dtype=self.dtype)
-        self.PhaseNeck = nn.Dense(self.hidden_size, use_bias=self.bias,name="PhaseNeck", param_dtype=self.dtype)
-        self.PhaseHead = nn.Dense(1, use_bias=False,name="PhaseHead", param_dtype=self.dtype)
-        self.ldim =self.LocalHilDim
-        self.lDim = self.LocalHilDim
-        
-    def __call__(self, s: Array, block_states: Array = None, output_state: bool = False,**kwargs) -> Array:
+        # self.output_layernorm = nn.LayerNorm(epsilon=1e-5,name="OutputLayerNorm", param_dtype=self.dtype)
+        self.neck = nn.Dense(self.hidden_size, use_bias=self.bias,name="Neck",
+                                kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"),param_dtype=self.dtype)
+        self.head = nn.Dense(self.LocalHilDim, use_bias=False,name="Head", 
+                                kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"),param_dtype=self.dtype)
+        # self.PhaseNeck = nn.Dense(self.hidden_size, use_bias=self.bias,name="PhaseNeck", param_dtype=self.dtyp,
+        #                         kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"),param_dtype=self.dtype))
+        self.PhaseHead = nn.Dense(self.LocalHilDim, use_bias=False,name="PhaseHead",
+                                kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"),param_dtype=self.dtype)
+        # self.PhaseHead = nn.Dense(1, use_bias=False,name="PhaseHead",
+        #                         kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"),param_dtype=self.dtype)
+        self.PhaseAttention = _TransformerBlock(self.embedding_size, self.num_heads, self.dtype, self.init_variance)
+
+    def __call__(self, s: Array, block_states: Array = None, output_state: bool = False) -> Array:
         # the helper method allows to use nn.jit with static_argnames
         return self.forward_with_state(s, block_states, output_state)
 
@@ -298,14 +364,16 @@ class CpxRWKV(nn.Module):
                 y = jax.nn.one_hot(s,self.LocalHilDim,axis=-1)
                 y = self.embed(y)
             else:
-                y = jnp.pad(s,(1,0),mode='constant',constant_values=0)
+                s = self.index_map(s.reshape(self.PL,self.patch_size))
+                y = jnp.pad(s[:-1],(1,0),mode='constant',constant_values=0)
                 y = jax.nn.one_hot(y,self.LocalHilDim,axis=-1) 
                 y = self.embed(y)
         else:
             if output_state:
                 y = self.embed(s)
             else:
-                y = jnp.pad(s,(1,0),mode='constant',constant_values=0)
+                s = self.index_map(s.reshape(self.PL,self.patch_size))
+                y = jnp.pad(s[:-1],(1,0),mode='constant',constant_values=0)
                 y = self.embed(y)
 
         next_states = []
@@ -316,149 +384,37 @@ class CpxRWKV(nn.Module):
             if output_state:
                 next_states.append(new_state)
         # the neck precedes the head
-        x = nn.elu(self.neck(y))
+        x = nn.gelu(self.neck(y))
         # the head tops the neck
         x = self.head(x)
-        # necessery: positive activation for the probabilities with some regularization
-        x = nn.elu(x) + 1. + 1e-8
-        # return here for RNN mode
-        if output_state:
-            # normalize the product probability distribution
-            x = jnp.log(x/jnp.expand_dims(x.sum(axis=-1),axis=-1))
-            return x, next_states
+        if self.lin_out:
+            # necessery: positive activation for the probabilities with some regularization
+            x = nn.elu(x) + 1. + 1e-8
+            # return here for RNN mode
+            if output_state:
+                # normalize the product probability distribution
+                x = jnp.log(x/jnp.expand_dims(x.sum(axis=-1),axis=-1))
+                return x, next_states
+            else:
+                # normalize the product probability distribution
+                x = jnp.log(x/jnp.expand_dims(x.sum(axis=-1),axis=-1)) * self.logProbFactor
         else:
-            # normalize the product probability distribution
-            x = jnp.log(x[:-1]/jnp.expand_dims(x[:-1].sum(axis=-1),axis=-1)) * self.logProbFactor
+            if output_state:
+                return x, next_states
+            else:
+                x = log_softmax(x, axis=-1) * self.logProbFactor
         # compute the phase in the auotregressive style
-        phase = nn.gelu(self.PhaseNeck(y[-1]))
+        # phase = nn.gelu(self.PhaseNeck(y[-1]))
+        phase = self.PhaseAttention(y)
+        phase = self.PhaseHead(phase)
         # the log-probs according the state
         return (take_along_axis(x, expand_dims(s, -1), axis=-1)
                                 .sum(axis=-2)
                                 .squeeze(-1) 
-                + 1.j * ( self.PhaseHead(phase)).squeeze(-1))
-
-    def sample(self, numSamples: int, key) -> Array:
-        """Autoregressively sample a spin configuration.
-
-        Args:
-            * ``numSamples``: The number of configurations to generate.
-            * ``key``: JAX random key.
-
-        Returns:
-            A batch of spin configurations.
-        """
-        def generate_sample(key):
-            key = split(key, self.L)
-            logits, carry = self(jnp.zeros(1,dtype=int),block_states = None, output_state=True)
-            choice = categorical(key[0], logits.ravel().real)
-            x, s = self._scanning_fn((jnp.expand_dims(choice,0),carry),key[1:])
-            return jnp.concatenate([jnp.expand_dims(choice,0),s])
-
-        # get the samples
-        keys = split(key, numSamples)
-        return vmap(generate_sample)(keys)
-
-    @partial(scan,
-             variable_broadcast='params',
-             split_rngs={'params': False})
-    def _scanning_fn(self, carry: Tuple[Array, Array, float], key) -> Tuple[Array,Array, float]:
-        logits, next_states = self(carry[0],block_states = carry[1], output_state=True)
-        choice = categorical(key, logits.ravel().real)
-        return (jnp.expand_dims(choice,0), next_states), choice
-
-
-class RpxRWKV(nn.Module):
-    # Main
-    L: int = 1 # system size
-    LocalHilDim: int = 2
-    hidden_size: int = 8
-    num_heads: int = 1
-    dtype: type = tReal
-    # time/channel mixing
-    num_layers: int = 1
-    embedding_size: int = 2
-    # prob correction
-    logProbFactor: float = 0.5
-    # one hot embedding
-    one_hot: bool = False
-    # bias
-    bias: bool = False
-    __name__: str = "RWKV"
-
-
-    def setup(self):
-        if self.one_hot:
-            self.embed = nn.Dense(self.embedding_size, use_bias=False,name="Embedding", param_dtype=self.dtype)
-        else:
-            self.embed = nn.Embed(self.LocalHilDim,
-                               self.embedding_size,
-                               param_dtype=self.dtype)
-        self.input_layernorm = nn.LayerNorm(epsilon=1e-5,name="InputLayerNorm",param_dtype=self.dtype)
-        self.blocks = [
-                        RWKVBlock(layer_num=i,
-                              embedding_size=self.embedding_size,
-                              hidden_size=self.hidden_size,
-                              num_layers=self.num_layers,
-                              num_heads=self.num_heads,
-                              bias=self.bias,
-                              dtype=self.dtype)
-                        for i in range(self.num_layers)
-                       ]
-        self.output_layernorm = nn.LayerNorm(epsilon=1e-5,name="OutputLayerNorm", param_dtype=self.dtype)
-        self.neck = nn.Dense(self.hidden_size, use_bias=self.bias,name="Neck", param_dtype=self.dtype)
-        self.head = nn.Dense(self.LocalHilDim, use_bias=False,name="Head", param_dtype=self.dtype)
-        self.ldim =self.LocalHilDim
-        self.lDim = self.LocalHilDim
-        
-    def __call__(self, s: Array, block_states: Array = None, output_state: bool = False) -> Array:
-        # the helper method allows to use nn.jit with static_argnames
-        #jax.debug.print("s: {s}",s=s)
-        return self.forward_with_state(s, block_states, output_state)
-
-    @partial(nn.jit, static_argnums=3)
-    def forward_with_state(self, s: Array, block_states: Array = None,  output_state: bool = False) -> Array:
-        
-        if self.one_hot:
-            if output_state:
-                y = jax.nn.one_hot(s,self.LocalHilDim,axis=-1)
-                y = self.embed(y)
-            else:
-                y = jnp.pad(s,(1,0),mode='constant',constant_values=0)
-                y = jax.nn.one_hot(y,self.LocalHilDim,axis=-1) 
-                y = self.embed(y)
-        else:
-            if output_state:
-                y = self.embed(s)
-            else:
-                y = jnp.pad(s,(1,0),mode='constant',constant_values=0)
-                y = self.embed(y)
-
-        next_states = []
-        if block_states is None:
-            block_states = repeat(None)
-        for block, state in zip(self.blocks, block_states):
-            y, new_state = block(y, state)
-            if output_state:
-                next_states.append(new_state)
-        # the neck precedes the head
-        x = nn.elu(self.neck(y))
-        # the head tops the neck
-        x = self.head(x)
-        # necessery: positive activation for the probabilities with some regularization
-        x = nn.elu(x) + 1. + 1e-8
-        # return here for RNN mode
-        if output_state:
-            # normalize the product probability distribution
-            x = jnp.log(x/jnp.expand_dims(x.sum(axis=-1),axis=-1))
-            return x, next_states
-        else:
-            # normalize the product probability distribution
-            x = jnp.log(x[:-1]/jnp.expand_dims(x[:-1].sum(axis=-1),axis=-1)) * self.logProbFactor
-        # compute the phase in the auotregressive style
-        # the log-probs according the state
-        return (take_along_axis(x, expand_dims(s, -1), axis=-1)
+                            #    +1.j * phase.squeeze(-1) )
+                + 1.j * take_along_axis(phase, expand_dims(s, -1), axis=-1)
                                 .sum(axis=-2)
-                                .squeeze(-1))
+                                .squeeze(-1) )
 
     def sample(self, numSamples: int, key) -> Array:
         """Autoregressively sample a spin configuration.
@@ -471,11 +427,12 @@ class RpxRWKV(nn.Module):
             A batch of spin configurations.
         """
         def generate_sample(key):
-            key = split(key, self.L)
+            key = split(key, self.PL)
             logits, carry = self(jnp.zeros(1,dtype=int),block_states = None, output_state=True)
-            choice = categorical(key[0], logits.ravel().real)
-            x, s = self._scanning_fn((jnp.expand_dims(choice,0),carry),key[1:])
-            return jnp.concatenate([jnp.expand_dims(choice,0),s])
+            choice = categorical(key[0], logits.ravel().real/self.temperature)
+            _, s = self._scanning_fn((jnp.expand_dims(choice,0),carry),key[1:])
+            state = jnp.concatenate([jnp.expand_dims(choice,0),s])
+            return jnp.take_along_axis(self.patch_states,state[:,None],axis=0).flatten()
 
         # get the samples
         keys = split(key, numSamples)
@@ -486,5 +443,5 @@ class RpxRWKV(nn.Module):
              split_rngs={'params': False})
     def _scanning_fn(self, carry: Tuple[Array, Array, float], key) -> Tuple[Array,Array, float]:
         logits, next_states = self(carry[0],block_states = carry[1], output_state=True)
-        choice = categorical(key, logits.ravel().real)
+        choice = categorical(key, logits.ravel().real/self.temperature)
         return (jnp.expand_dims(choice,0), next_states), choice

@@ -173,6 +173,48 @@ def occupations(L,lDim=2):
         occ[l].add(scal_opstr(1, (number(l,lDim), )))     
     return occ
 
+def BoseHubbard_Hamiltonian2D(L1,L,J,U,lDim=2,mu=0,V=0):
+    """
+    2d quadratic grid
+    L1: number of sites in one dimension
+    L: number of sites
+    J: next-neighbour hopping
+    U: interaction
+    mu: chemical potentials
+    V: non-local next-neighbour interaction
+    """
+    assert L1**2 == L, "L1 must be squared L"
+
+    if not hasattr(mu, "__len__"):
+        mu = [mu]*L
+    if not hasattr(V, "__len__"):
+        V = [V]*L    
+    hamiltonian2D = BranchFreeOperator(lDim=lDim)
+    for l in range(L):    
+        id_x = l % L1
+        id_y = l // L1
+
+        lpx = id_y * L1 + (id_x+1)%L1 
+        #lmx = id_y * L1 + (id_x-1)%L1
+        lpy = ((id_y +1)*L1) % L + id_x
+        #lmy = ((id_y -1)*L1) % L + id_x
+         
+        
+        hamiltonian2D.add(scal_opstr(-J, (create(l,lDim), destroy(lpx,lDim))))
+        hamiltonian2D.add(scal_opstr(-J, (create(lpx,lDim), destroy(l,lDim))))
+        
+        hamiltonian2D.add(scal_opstr(-J, (create(l,lDim), destroy(lpy,lDim))))
+        hamiltonian2D.add(scal_opstr(-J, (create(lpy,lDim), destroy(l,lDim))))
+        
+        hamiltonian2D.add(scal_opstr(U/2., (number(l,lDim ),number(l,lDim )) ))
+        hamiltonian2D.add(scal_opstr(-U/2., (number(l,lDim ),) ))
+        if np.linalg.norm(mu)>1e-10:
+            hamiltonian2D.add(scal_opstr(mu[l], (number(l,lDim ),) ))
+        if np.linalg.norm(V)>1e-10:
+            hamiltonian2D.add(scal_opstr(V[l], (number(l,lDim), number(lpx,lDim))))
+            hamiltonian2D.add(scal_opstr(V[l], (number(l,lDim), number(lpy,lDim))))
+            
+    return hamiltonian2D
 
 ################
 

@@ -64,8 +64,11 @@ class particle_conservation(nn.Module):
             y = jnp.pad(s[:-1],(1,0),mode='constant',constant_values=0)
             cum_sum = self.Q - jnp.cumsum(y)
             #x, state = self.net(*args,output_state=True,**kwargs)
-            x, state = self.net(y,**kwargs)
-            
+            if self.net.__name__ == "GPT": # not happy
+                x = self.net.call_all(y,output_state=True)
+
+            else:
+                x, state = self.net(y,**kwargs)
             must_give = nn.relu(cum_sum-self.max_particles)
             can_give = jnp.minimum(cum_sum, self.LocalHilDim-1)
             mask = (self.must_mask[must_give] + 

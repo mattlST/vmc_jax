@@ -20,11 +20,14 @@ parts/
 sdist/
 var/
 wheels/
+myStuff/
 pip-wheel-metadata/
+tests/*/*.pdf
 share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.hdf5
 MANIFEST
 
 # PyInstaller

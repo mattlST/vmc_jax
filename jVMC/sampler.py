@@ -218,9 +218,11 @@ class MCSampler:
             if parameters is not None:
                 tmpP = self.net.params
                 self.net.set_parameters(parameters)
-            configs,coeffs,rescaled_coeffs = self._get_samples_gen(self.net.parameters, numSamples, multipleOf)
-            #coeffs = self.net(configs)
-            
+            configs,coeffs,rescaled_coeffs,kappa = self._get_samples_gen(self.net.parameters, numSamples, multipleOf)
+            if self.orbit is not None: 
+                coeffs = self.net(configs)
+                re_weights = jnp.nan_to_num(jnp.exp(coeffs) /(-jnp.expm1(-jnp.exp(coeffs-kappa))),0)
+                rescaled_coeffs = re_weights/re_weights.sum()
             if parameters is not None:
                 self.net.params = tmpP
             return configs, coeffs, rescaled_coeffs# jnp.ones(configs.shape[:2]) / jnp.prod(jnp.asarray(configs.shape[:2]))
@@ -263,7 +265,7 @@ class MCSampler:
 
         if not self.orbit is None:
             if self.net.is_gumbel:
-                return self._randomize_samples_jitd[str(numSamples)](samples[0], tmpKey2, self.orbit),samples[1],samples[2]
+                return self._randomize_samples_jitd[str(numSamples)](samples[0], tmpKey2, self.orbit),samples[1],samples[2],samples[3]
         
             return self._randomize_samples_jitd[str(numSamples)](samples, tmpKey2, self.orbit)
         

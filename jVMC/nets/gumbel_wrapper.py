@@ -25,10 +25,14 @@ def sorting_gumble(sample,logits,gumbel,states):
     
     gumbel = gumbel.ravel()[indexes]
     gumbel = gumbel.reshape(LocalHilDim,numSamples).T
-
     vals, treedef  = jax.tree_util.tree_flatten(states)
+    #jax.debug.print("states shape: {x}",x=states[0].shape)
+    #jax.debug.print("vals: {x}",x=vals)
+    #jax.debug.print("treedef: {x}",x=treedef)
     vals_ordered = [v[indexes_states] for v in vals]
     states = jax.tree_util.tree_unflatten(treedef,vals_ordered)
+    #jax.debug.print("new states shape: {x}",x=states[0].shape)
+    
     return sample,logits,gumbel,states
 
 class gumbel_wrapper(nn.Module):
@@ -79,12 +83,22 @@ class gumbel_wrapper(nn.Module):
         sample = jnp.array([sample[0].at[position].set(l) for l in jnp.arange(self.LocalHilDim)])
         #right shifted input
         inputt = jnp.array([jnp.pad(sample[0,:-1],(1,0))])
-        
+
+        #jax.debug.print("position: {x}",x=position)
+        #jax.debug.print("inputt: {x}",x=inputt)
+
+        #jax.debug.print("inputt[pos]: {x}",x=inputt[:,position])
         if self.is_particle:
             cumsum = jnp.sum(inputt+jnp.abs(inputt))//2
+            #if self.net.net.__name__=="GPT":
+            #    # no shift for the GPT model
+            #    #states = (jnp.concatenate((sample[0,:position],[-1]*L-position)),position)
+            #    logitnew, next_states = self(jnp.expand_dims(sample[0,position-1],0),block_states = states, output_state=True,cumsum=cumsum,position=position)            
+            #else:
             logitnew, next_states = self(inputt[:,position],block_states = states, output_state=True,cumsum=cumsum,position=position)
         else:
             logitnew, next_states = self(inputt[:,position],block_states = states, output_state=True)
+        #jax.debug.print("logits new: {x}",x=logitnew)
         logitnew = logits[0] + logitnew 
         
         gumbelnew = logitnew + jrnd.gumbel(key[0],shape=(self.LocalHilDim,)) 
@@ -94,7 +108,7 @@ class gumbel_wrapper(nn.Module):
             jnp.exp(-gumbel[0])-jnp.exp(-Z)+jnp.exp(-gumbelnew) 
             ),nan=-jnp.inf)
 
-        gumbelnew = gumbelnew
+        #gumbelnew = gumbelnew
         return sample, logitnew, gumbelnew, next_states
     
     def sample(self, numSamples: int, key) -> Array:
@@ -129,7 +143,7 @@ class gumbel_wrapper(nn.Module):
         working_space_logits = jnp.full(shape_logits,-jnp.inf,dtype=jnp.float64)
         working_space_gumbel = jnp.full(shape_gumbel,-jnp.inf,dtype=jnp.float64)
         
-        working_space_samples = working_space_samples.at[0,0,0].set(0)
+        #working_space_samples = working_space_samples.at[0,0,0].set(0)
         working_space_logits = working_space_logits.at[0,0].set(0.)
         working_space_gumbel = working_space_gumbel.at[0,0].set(0.)
         
@@ -137,17 +151,18 @@ class gumbel_wrapper(nn.Module):
         init_work = partial(self._gumbel_step, position=0,states=states)
         key0 = jrnd.split(keys[0],numSamples)
         key0 = jnp.expand_dims(key0,-2)
-        sample,logits,gumbel,states  = jax.vmap(init_work)(working_space_samples,working_space_logits,working_space_gumbel,key0)
+        samples,logits,gumbel,states  = jax.vmap(init_work)(working_space_samples,working_space_logits,working_space_gumbel,key0)
         
-        init_carry = sorting_gumble(sample,logits,gumbel,states)
+        init_carry = sorting_gumble(samples,logits,gumbel,states)
         
         res,_ = self._scanning_fn(init_carry,(keys[1:],jnp.arange(1,self.net.L)))
         samples, logits,gumbels,_ = res
         
         kappa = gumbels[0,1]
+
         re_weights = jnp.nan_to_num(jnp.exp(logits[:,0]) /(-jnp.expm1(-jnp.exp(logits[:,0]-kappa))),0)
         
-        return samples[:,0,:],logits[:,0]*self.net.logProbFactor,re_weights/jnp.sum(re_weights)
+        return samples[:,0,:],logits[:,0]*self.net.logProbFactor,re_weights/jnp.sum(re_weights),kappa
         #return samples[:,0,:],logits[:,0],re_weights/jnp.sum(re_weights)
 
     @partial(nn.scan,
