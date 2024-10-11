@@ -211,7 +211,7 @@ class MCSampler:
 
         if numSamples is None:
             numSamples = self.numSamples
-        if self.net.is_gumbel:
+        if (self.net.is_gumbel and self.net.is_generator):
             ### raise errror 
             if global_defs.device_count()>1:
                 raise Exception('Non implemented')

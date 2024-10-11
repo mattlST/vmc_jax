@@ -127,7 +127,6 @@ def E(idx=0, lDim=2):
 
    
 ################
-
 def BoseHubbard_Hamiltonian1D(L,J,U,lDim=2,mu=0,V=0):
     """
     L: number of sites
@@ -144,6 +143,31 @@ def BoseHubbard_Hamiltonian1D(L,J,U,lDim=2,mu=0,V=0):
     for l in range(L):    
         hamiltonian1D.add(scal_opstr(-J, (create(l,lDim), destroy((l + 1) % L,lDim))))
         hamiltonian1D.add(scal_opstr(-J, (create((l+1)%L,lDim), destroy((l),lDim))))
+        
+        hamiltonian1D.add(scal_opstr(U/2., (number(l,lDim ),number(l,lDim )) ))
+        hamiltonian1D.add(scal_opstr(-U/2., (number(l,lDim ),) ))
+        if np.linalg.norm(mu)>1e-10:
+            hamiltonian1D.add(scal_opstr(mu[l], (number(l,lDim ),) ))
+        if np.linalg.norm(V)>1e-10:
+            hamiltonian1D.add(scal_opstr(V[l], (number(l,lDim), number((l + 1) % L,lDim))))
+    return hamiltonian1D
+def BoseHubbard_Hamiltonian1D_obc(L,J,U,lDim=2,mu=0,V=0):
+    """
+    L: number of sites
+    J: next-neighbour hopping
+    U: interaction
+    mu: chemical potentials
+    V: non-local next-neighbour interaction
+    """
+    if not hasattr(mu, "__len__"):
+        mu = [mu]*L
+    if not hasattr(V, "__len__"):
+        V = [V]*L    
+    hamiltonian1D = BranchFreeOperator(lDim=lDim)
+    for l in range(L):    
+        if l<(L-1):
+            hamiltonian1D.add(scal_opstr(-J, (create(l,lDim), destroy((l + 1) % L,lDim))))
+            hamiltonian1D.add(scal_opstr(-J, (create((l+1)%L,lDim), destroy((l),lDim))))
         
         hamiltonian1D.add(scal_opstr(U/2., (number(l,lDim ),number(l,lDim )) ))
         hamiltonian1D.add(scal_opstr(-U/2., (number(l,lDim ),) ))
@@ -217,6 +241,13 @@ def BoseHubbard_Hamiltonian2D(L1,L,J,U,lDim=2,mu=0,V=0):
     return hamiltonian2D
 
 ################
+def propose_swap(key, s, info):
+    # propose hopping of a single particle from one site to a random site 
+    idxKey1, idxKey2 = jax.random.split(key, num=2)
+    idx_1 = jax.random.randint(idxKey1, (1,), 0,  s.shape[-1])
+    idx_2 = jax.random.randint(idxKey2, (1,), 0,  s.shape[-1])
+    s = s.at[idx_1].set(s[idx_2]).at[idx_2].set(s[idx_1])
+    return s
 
 def propose_hopping(key, s, info,particles):
     # propose hopping of a single particle from one site to a random site 
@@ -269,7 +300,7 @@ def propose_hopping_nn(key, s, info,particles,L):
 
     #if yes 
     id_create = jax.random.randint(idxKeyCreate, (1,), -1,  2)
-    id_create = (id_destroy+id_create)%L
+    id_create = (id_destroy+id_create)%s.shape[-1]
     
     
     idx_create = jnp.unravel_index(id_create, s.shape)

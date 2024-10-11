@@ -30,7 +30,7 @@ from jax.numpy import arange, expand_dims, full, int64, take_along_axis, zeros
 from jax.random import KeyArray, categorical, split
 from jVMC.global_defs import tReal
 import jVMC
-
+from itertools import product
 
 # Transformer
 
@@ -91,7 +91,7 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe.T[:, :x.shape[1]].squeeze()
         return x
 
-class GPT(Module):
+class GPT_patched(Module):
     """GPT model for autoregressive decoding of neural quantum states.
 
     This model outputs the log amplitude of a wave function which in turn is
@@ -112,19 +112,33 @@ class GPT(Module):
                 (default: ``jax.numpy.int64``).
     """
 
-    L: int
-    LocalHilDim: int
-    embeddingDim: int
-    depth: int
-    nHeads: int
+    L: int = 1 # system size
+    LHilDim: int = 2
+    patch_size: int = 1
+    embeddingDim: int = 4
+    depth: int = 1
+    nHeads: int = 1
     hiddenDim: int = 16
     logProbFactor: float = 0.5
     paramDType: type = tReal
     spinDType: type = int64
     __name__: str = "GPT"
     def setup(self):
+        self.LocalHilDim = self.LHilDim ** self.patch_size
         self.lDim = self.LocalHilDim
         self.ldim = self.LocalHilDim
+        if self.L % self.patch_size != 0:
+            raise ValueError("The system size must be divisible by the patch size")
+        self.patch_states = jnp.array(list(product(range(self.LHilDim),repeat=self.patch_size)))
+        self.ldim =self.LocalHilDim
+        self.lDim = self.LocalHilDim
+
+        self.PL = self.L // self.patch_size
+        index_array = self.LHilDim**(jnp.arange(self.patch_size)[::-1])
+        self.index_map = jax.vmap(lambda s: index_array.dot(s))
+        
+        self.posEnc = PositionalEncoding(self.PL,self.embeddingDim)
+        
         if not self.embeddingDim % self.nHeads == 0:
             raise AttributeError(
                 "The embedding dimension should be divisible by the number of"
@@ -135,10 +149,11 @@ class GPT(Module):
         #jax.debug.print("s {s}",s=s)
 
         if output_state==False:
+            s = self.index_map(s.reshape(self.PL,self.patch_size))
             return self.call_all(s,output_state= False)
 
         if block_states is None:
-            s_call = jnp.full(self.L,0,dtype=int)
+            s_call = jnp.full(self.PL,0,dtype=int)
             index = 0
         else:
             s_call, index = block_states
@@ -184,8 +199,7 @@ class GPT(Module):
         #).value
         #y = y+p
         #jax.debug.print("{y},{p}",y=y.shape,p=p.shape)
-        p = PositionalEncoding(self.L,self.embeddingDim)
-        y = p(y) 
+        y = self.posEnc(y) 
         y = Sequential(
             [
                 _TransformerBlock(
@@ -226,11 +240,12 @@ class GPT(Module):
             A batch of spin configurations.
         """
         def generate_sample(key):
-            key = split(key, self.L)
+            key = split(key, self.PL)
             logits, carry = self(jnp.zeros(1,dtype=int),block_states = None, output_state=True)
             choice = categorical(key[0], logits.ravel().real)
             x, s = self._scanning_fn((jnp.expand_dims(choice,0),carry),key[1:])
-            return jnp.concatenate([jnp.expand_dims(choice,0),s])
+            state =  jnp.concatenate([jnp.expand_dims(choice,0),s])
+            return jnp.take_along_axis(self.patch_states,state[:,None],axis=0).flatten()
 
         # get the samples
         keys = split(key, numSamples)

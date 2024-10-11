@@ -287,7 +287,7 @@ class _TransformerBlock(Module):
         x = x + y
         return x
 
-class CpxRWKV(nn.Module):
+class CpxRWKV_patched(nn.Module):
     # Main
     L: int = 1 # system size
     LHilDim: int = 2
@@ -310,13 +310,19 @@ class CpxRWKV(nn.Module):
     temperature: float = 1.0
     # init variance
     init_variance: float = 0.1
+    flag_phase = False
+    __name__: str = "RWKV"
 
     def setup(self):
+        
         # set up patching
         if self.L % self.patch_size != 0:
             raise ValueError("The system size must be divisible by the patch size")
         self.patch_states = jnp.array(list(product(range(self.LHilDim),repeat=self.patch_size)))
         self.LocalHilDim = self.LHilDim ** self.patch_size
+        self.ldim =self.LocalHilDim
+        self.lDim = self.LocalHilDim
+
         self.PL = self.L // self.patch_size
         index_array = self.LHilDim**(jnp.arange(self.patch_size)[::-1])
         self.index_map = jax.vmap(lambda s: index_array.dot(s))
@@ -346,11 +352,12 @@ class CpxRWKV(nn.Module):
                                 kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"),param_dtype=self.dtype)
         # self.PhaseNeck = nn.Dense(self.hidden_size, use_bias=self.bias,name="PhaseNeck", param_dtype=self.dtyp,
         #                         kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"),param_dtype=self.dtype))
-        self.PhaseHead = nn.Dense(self.LocalHilDim, use_bias=False,name="PhaseHead",
-                                kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"),param_dtype=self.dtype)
-        # self.PhaseHead = nn.Dense(1, use_bias=False,name="PhaseHead",
-        #                         kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"),param_dtype=self.dtype)
-        self.PhaseAttention = _TransformerBlock(self.embedding_size, self.num_heads, self.dtype, self.init_variance)
+        if self.flag_phase:
+            self.PhaseHead = nn.Dense(self.LocalHilDim, use_bias=False,name="PhaseHead",
+                                    kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"),param_dtype=self.dtype)
+            # self.PhaseHead = nn.Dense(1, use_bias=False,name="PhaseHead",
+            #                         kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"),param_dtype=self.dtype)
+            self.PhaseAttention = _TransformerBlock(self.embedding_size, self.num_heads, self.dtype, self.init_variance)
 
     def __call__(self, s: Array, block_states: Array = None, output_state: bool = False) -> Array:
         # the helper method allows to use nn.jit with static_argnames
@@ -405,16 +412,21 @@ class CpxRWKV(nn.Module):
                 x = log_softmax(x, axis=-1) * self.logProbFactor
         # compute the phase in the auotregressive style
         # phase = nn.gelu(self.PhaseNeck(y[-1]))
-        phase = self.PhaseAttention(y)
-        phase = self.PhaseHead(phase)
-        # the log-probs according the state
-        return (take_along_axis(x, expand_dims(s, -1), axis=-1)
-                                .sum(axis=-2)
-                                .squeeze(-1) 
-                            #    +1.j * phase.squeeze(-1) )
-                + 1.j * take_along_axis(phase, expand_dims(s, -1), axis=-1)
-                                .sum(axis=-2)
-                                .squeeze(-1) )
+        if self.flag_phase:
+            phase = self.PhaseAttention(y)
+            phase = self.PhaseHead(phase)
+            # the log-probs according the state
+            return (take_along_axis(x, expand_dims(s, -1), axis=-1)
+                                    .sum(axis=-2)
+                                    .squeeze(-1) 
+                                #    +1.j * phase.squeeze(-1) )
+                    + 1.j * take_along_axis(phase, expand_dims(s, -1), axis=-1)
+                                    .sum(axis=-2)
+                                    .squeeze(-1) )
+        else:
+            return (take_along_axis(x, expand_dims(s, -1), axis=-1)
+                                    .sum(axis=-2)
+                                    .squeeze(-1))
 
     def sample(self, numSamples: int, key) -> Array:
         """Autoregressively sample a spin configuration.
