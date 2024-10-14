@@ -5,8 +5,6 @@
 ##############################################
 
 import jax
-from jax.config import config
-config.update("jax_enable_x64", True)
 import flax
 #from flax import nn
 import flax.linen as nn
@@ -37,7 +35,7 @@ class Target(nn.Module):
   @nn.compact
   def __call__(self, s):
     kernel = self.param('kernel',
-                        nn.initializers.constant(1),
+                        nn.initializers.constant(1,dtype=global_defs.tReal),
                         (int(self.d**self.L)))
     # return amplitude for state s
     idx = ((self.d**jnp.arange(self.L)).dot(s)).astype(int)
