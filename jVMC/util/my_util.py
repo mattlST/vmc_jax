@@ -1,6 +1,7 @@
 import jVMC
 import jax.numpy as jnp
 import optax
+import numpy as np
 def check_gradient(grad):
     flag = not jnp.all(jnp.isfinite(grad))
     gradR = jnp.where(jnp.isfinite(grad),grad,0)
@@ -32,7 +33,7 @@ def re_grad(grad,renormalization,mode=""):
 
 
 
-def update_optax(psi,psiSampler,H,state_optimizer,optimizer,renormalization=None,mode=""):
+def update_optax(psi,psiSampler,H,state_optimizer,optimizer,tempAnnealing=0.,renormalization=None,mode=""):
     success = True
     psi_s, psi_logPsi, psi_p = psiSampler.sample()
 
@@ -42,7 +43,11 @@ def update_optax(psi,psiSampler,H,state_optimizer,optimizer,renormalization=None
     Evar = Eso.var()[0]
     Opsi = psi.gradients(psi_s)
     grads = jVMC.util.SampledObs(Opsi, psi_p)
-    Egrad = 2.*grads.covar(Eso)
+
+    #psi_grads = jVMC.util.SampledObs(psi.get_grad)
+    Entropy = jVMC.util.SampledObs((-2.) * psi_logPsi.real, psi_p)
+    Ent_grad = - 2.*grads.covar(Entropy) - 2.*jnp.expand_dims(grads.mean(),axis=-1) 
+    Egrad = 2.*grads.covar(Eso)+ tempAnnealing * Ent_grad
     grad = jnp.real(Egrad)
     grad = jnp.nan_to_num(grad,0.)
     n_grad = jnp.linalg.norm(grad)
@@ -87,3 +92,12 @@ def sr_update(psi,lr_SR,equations,H,renormalization=None,mode=""):
     #dp, _ = stepperSR.step(0, equations, dpOld, hamiltonian=H, psi=psi)
     psi.set_parameters(dpOld + lr_SR * jnp.real(checked_grad))
     return  jnp.real(equations.ElocMean0) , equations.ElocVar0, n_p, n_grad,success
+
+
+def sampling_histogram(sampler,ldim,numSamp=2**10,repeats=10):
+    #plt.imshow(np.array([np.histogram(x,ldim,range=(0,ldim-1),density=True)[0] for x in  sampler_GPT.sample(numSamples=1000)[0][0].T]))
+    y = np.zeros((sampler.sampleShape[0],1+ldim),dtype=float)
+    for i in range(repeats):
+        s, log_psi, p = sampler.sample(numSamples=numSamp)
+        y += np.array([np.histogram(x,ldim+1,range=(0,ldim),weights=p[0],density=True)[0] for x in  s[0].T])
+    return y/repeats
