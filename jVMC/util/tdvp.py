@@ -66,18 +66,19 @@ class TDVP:
         * ``pinvCutoff``: Lower bound for the regularization parameter :math:`\epsilon_{SVD}`, see above.
         * ``makeReal``: Specifies the function :math:`q`, either `'real'` for :math:`q=\\text{Re}` or `'imag'` for :math:`q=\\text{Im}`.
         * ``rhsPrefactor``: Prefactor :math:`x` of the right hand side, see above.
-        * ``diagonalShift``: Regularization parameter :math:`\\rho` for ground state search, see above.
+        * ``diagonalShift``: Regularization parameter :math:`\\rho` for ground state search, shifting the diagonal.
+        * ``diagonalScale``: Regularization parameter :math:`\\rho` for ground state search, scaling the diagonal.
         * ``crossValidation``: Perform cross-validation check as introduced in `[arXiv:2105.01054] <https://arxiv.org/pdf/2105.01054.pdf>`_.
         * ``diagonalizeOnDevice``: Choose whether to diagonalize :math:`S` on GPU or CPU.
     """
 
-    def __init__(self, sampler, snrTol=2, pinvTol=1e-14, pinvCutoff=1e-8, makeReal='imag', rhsPrefactor=1.j, diagonalShift=0., crossValidation=False, diagonalizeOnDevice=True):
-        
+    def __init__(self, sampler, snrTol=2, pinvTol=1e-14, pinvCutoff=1e-8, makeReal='imag', rhsPrefactor=1.j, diagonalShift=0., diagonalScale=0., crossValidation=False, diagonalizeOnDevice=True):
         self.sampler = sampler
         self.snrTol = snrTol
         self.pinvTol = pinvTol
         self.pinvCutoff = pinvCutoff
         self.diagonalShift = diagonalShift
+        self.diagonalScale = diagonalScale
         self.rhsPrefactor = rhsPrefactor
         self.crossValidation = crossValidation
 
@@ -95,6 +96,9 @@ class TDVP:
 
     def set_diagonal_shift(self, delta):
         self.diagonalShift = delta
+
+    def set_diagonal_scale(self, delta):
+        self.diagonalScale = delta
 
     def set_cross_validation(self, crossValidation=True):
         self.crossValidation = crossValidation
@@ -142,8 +146,8 @@ class TDVP:
         self.S0 = gradients.covar()
         S = self.makeReal(self.S0)
 
-        if self.diagonalShift > 1e-10:
-            S = S + jnp.diag(self.diagonalShift * jnp.diag(S))
+        if self.diagonalShift or self.diagonalScale > 1e-10:
+            S = S + jnp.diag(self.diagonalShift * jnp.ones_like(S) + self.diagonalScale * jnp.diag(S))
 
         return S, F
 

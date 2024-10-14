@@ -6,7 +6,7 @@ from jVMC.util.symmetries import LatticeSymmetry
 
 def avgFun_Coefficients_Exp(coeffs, sym_factor):
     # average (complex) coefficients
-    return jax.scipy.special.logsumexp(coeffs, b=sym_factor)
+    return jax.scipy.special.logsumexp(coeffs, b=sym_factor) - jnp.log(coeffs.shape[-1])
 
 
 def avgFun_Coefficients_Log(coeffs, sym_factor):

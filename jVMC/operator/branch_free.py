@@ -13,7 +13,6 @@ opDtype = global_defs.tCpx
 
 # Common operators
 
-
 def Id(idx=0, lDim=2):
     """Returns an identity operator
 
@@ -354,6 +353,28 @@ class BranchFreeOperator(Operator):
         self.prefactor = []
         ######## fermions ########
         self.fermionic = []
+        ######## 
+        # accounting for branchfree operators (BFO) in the operator string 
+        ########
+        if len(self.ops) == 1:
+            # we allow the multiplication of a single BFO with a siingle operator string
+            for bfo_ind, op in enumerate(self.ops[0]):
+                contains_BFO = hasattr(op,'ops')
+                if contains_BFO: 
+                    break
+            if contains_BFO:
+                # the BFO ops become new self.ops
+                ops = []
+                for op_string in self.ops[0][bfo_ind].ops:
+                    # combine the prefcators
+                    new_op_string = (functools.partial(_prod_fun,f1=op_string[0],f2=self.ops[0][0]),)
+                    # combine the operator strings
+                    new_op_string += self.ops[0][1:bfo_ind] + op_string[1::] + self.ops[0][bfo_ind+1::]
+                    # create new list
+                    ops.append(new_op_string)
+                # overwrite old list
+                self.ops = ops
+            
         ##########################
         self.maxOpStrLength = 0
         for op in self.ops:

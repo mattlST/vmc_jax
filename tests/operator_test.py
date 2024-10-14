@@ -247,6 +247,5 @@ class TestOperator(unittest.TestCase):
         for o in opstr2[1:]:
             self.assertTrue(isinstance(o, (op.LocalOp, dict)))
 
-
 if __name__ == "__main__":
     unittest.main()
