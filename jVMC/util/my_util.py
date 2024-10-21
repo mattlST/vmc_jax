@@ -45,9 +45,12 @@ def update_optax(psi,psiSampler,H,state_optimizer,optimizer,tempAnnealing=0.,ren
     grads = jVMC.util.SampledObs(Opsi, psi_p)
 
     #psi_grads = jVMC.util.SampledObs(psi.get_grad)
-    Entropy = jVMC.util.SampledObs((-2.) * psi_logPsi.real, psi_p)
-    Ent_grad = - 2.*grads.covar(Entropy) - 2.*jnp.expand_dims(grads.mean(),axis=-1) 
-    Egrad = 2.*grads.covar(Eso)+ tempAnnealing * Ent_grad
+    if tempAnnealing>1e-12:
+        Entropy = jVMC.util.SampledObs((-2.) * psi_logPsi.real, psi_p)
+        Ent_grad = - 2.*grads.covar(Entropy) - 2.*jnp.expand_dims(grads.mean(),axis=-1) 
+        Egrad = (1-np.min([1.,tempAnnealing]))* 2.*grads.covar(Eso)+ tempAnnealing * Ent_grad
+    else:
+        Egrad = 2.*grads.covar(Eso)
     grad = jnp.real(Egrad)
     grad = jnp.nan_to_num(grad,0.)
     n_grad = jnp.linalg.norm(grad)
