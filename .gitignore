@@ -23,6 +23,7 @@ wheels/
 myStuff/
 pip-wheel-metadata/
 tests/*/*.pdf
+tests/annealing/
 share/python-wheels/
 *.egg-info/
 .installed.cfg

@@ -24,7 +24,7 @@ jax.devices()
 # %%
 L = 100 #int(sys.argv[1])
 N = L
-ldim = 50+1
+ldim = 20+1
 
 numSamp = np.min([2**8, math.comb(N+L-1,L-1)-3])
 print(numSamp)

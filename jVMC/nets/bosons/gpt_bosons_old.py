@@ -88,7 +88,7 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe.T[:, :x.shape[1]].squeeze()
         return x
 
-class GPT(Module):
+class GPTold(Module):
     """GPT model for autoregressive decoding of neural quantum states.
 
     This model outputs the log amplitude of a wave function which in turn is

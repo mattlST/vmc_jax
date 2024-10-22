@@ -56,7 +56,19 @@ class _TransformerBlock(Module):
         #x = LayerNorm(param_dtype=self.paramDType)(x)
         
         
-        y = Sequential(
+        # y = Sequential(
+        #     [
+        #         #Dense(4*self.embeddingDim, param_dtype=self.paramDType),
+        #         Dense(4*self.embeddingDim, param_dtype=self.paramDType),
+        #         #relu,
+        #         gelu,
+        #         #glu,
+        #         #PReLU(param_dtype=self.paramDType),
+        #         Dense(self.embeddingDim, param_dtype=self.paramDType),
+        #     ]
+        # )(x)
+        # x = x + y
+        x = x+ Sequential(
             [
                 #Dense(4*self.embeddingDim, param_dtype=self.paramDType),
                 Dense(4*self.embeddingDim, param_dtype=self.paramDType),
@@ -67,7 +79,6 @@ class _TransformerBlock(Module):
                 Dense(self.embeddingDim, param_dtype=self.paramDType),
             ]
         )(x)
-        x = x + y
         #jax.debug.print("x {x} \ny {y}\n", x=x,y=y)
         #x = LayerNorm(param_dtype=self.paramDType)(x)
         return x
@@ -84,7 +95,7 @@ class PositionalEncoding(nn.Module):
         div_term = np.exp(np.arange(0, self.d_model+(1 if self.d_model%2==1 else 0), 2) * (-math.log(10000.0) / self.d_model))
         pe[:, 0::2] = np.sin(position * div_term)
         pe[:, 1::2] = np.cos(position * div_term)[:,:self.d_model//2]
-        pe = pe[None]
+        #pe = pe[None]
         self.pe = jax.device_put(pe)
 
     def __call__(self, x):
@@ -145,7 +156,7 @@ class GPT_patched(Module):
                 " heads."
             )
 
-    def __call__(self, s, block_states=None, output_state=False):
+    def __call__(self, s : Array, block_states=None, output_state=False) -> Array:
         #jax.debug.print("s {s}",s=s)
 
         if output_state==False:
@@ -209,14 +220,14 @@ class GPT_patched(Module):
                 
             ]
         )(y)
-        #y = Dense(self.hiddenDim, param_dtype=self.paramDType)(y)
-        #y = glu(y)
+        y = Dense(self.hiddenDim, param_dtype=self.paramDType)(y)
+        y = glu(y)
         #y = PReLU(param_dtype=self.paramDType)(y)
         y = Dense(self.lDim, param_dtype=self.paramDType)(y)
         y = LayerNorm(param_dtype=self.paramDType)(y)
         y = log_softmax(y)
         #jax.debug.print("logits all: {x}",x=y)
-
+        jax.debug.print("shape {x}",x=y.shape)
         if output_state==False:
             
             return (

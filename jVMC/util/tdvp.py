@@ -71,13 +71,14 @@ class TDVP:
         * ``diagonalizeOnDevice``: Choose whether to diagonalize :math:`S` on GPU or CPU.
     """
 
-    def __init__(self, sampler, snrTol=2, pinvTol=1e-14, pinvCutoff=1e-8, makeReal='imag', rhsPrefactor=1.j, diagonalShift=0., crossValidation=False, diagonalizeOnDevice=True):
+    def __init__(self, sampler, snrTol=2, pinvTol=1e-14, pinvCutoff=1e-8, makeReal='imag', rhsPrefactor=1.j, diagonalShift=0., diagonalMulti=0.,crossValidation=False, diagonalizeOnDevice=True):
         
         self.sampler = sampler
         self.snrTol = snrTol
         self.pinvTol = pinvTol
         self.pinvCutoff = pinvCutoff
         self.diagonalShift = diagonalShift
+        self.diagonalMulti = diagonalMulti
         self.rhsPrefactor = rhsPrefactor
         self.crossValidation = crossValidation
 
@@ -143,8 +144,10 @@ class TDVP:
         S = self.makeReal(self.S0)
 
         if self.diagonalShift > 1e-10:
-            S = S + jnp.diag(self.diagonalShift * jnp.diag(S))
+            S = S + self.diagonalShift * jnp.identity(S.shape[0])#jnp.diag(self.diagonalShift * jnp.diag(S))
 
+        if self.diagonalMulti>1e-10:
+            S = S + jnp.diag(self.diagonalMulti * jnp.diag(S))
         return S, F
 
     def get_sr_equation(self, Eloc, gradients):

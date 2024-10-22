@@ -310,7 +310,7 @@ class CpxRWKV_patched(nn.Module):
     temperature: float = 1.0
     # init variance
     init_variance: float = 0.1
-    flag_phase = False
+    flag_phase :bool =  False
     __name__: str = "RWKV"
 
     def setup(self):
