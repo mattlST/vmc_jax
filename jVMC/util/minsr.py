@@ -26,10 +26,11 @@ class MinSR:
         * ``diagonalizeOnDevice``: Choose whether to diagonalize :math:`S` on GPU or CPU.
     """
 
-    def __init__(self, sampler, pinvTol=1e-14, makeReal='imag', diagonalizeOnDevice=True):
+    def __init__(self, sampler, pinvTol=1e-14, makeReal='imag', diagonalizeOnDevice=True,diagonalShift=0,diagonalScale=0.):
         self.sampler = sampler
         self.pinvTol = pinvTol
-
+        self.diagonalShift = diagonalShift
+        self.diagonalScale = diagonalScale
         self.diagonalizeOnDevice = diagonalizeOnDevice
 
         self.metaData = None
@@ -64,6 +65,12 @@ class MinSR:
         """
 
         T = gradients.tangent_kernel()
+        if self.diagonalScale>1e-10:
+            T = T + jnp.diag(self.diagonalScale * jnp.diag(T))
+
+        if self.diagonalShift > 1e-10:
+            T = T + self.diagonalShift * jnp.identity(T.shape[0])
+
         T_inv = jnp.linalg.pinv(T, rtol=self.pinvTol, hermitian=True)
 
         eloc_all = mpi.gather(eloc._data).reshape((-1,))
