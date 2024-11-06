@@ -77,6 +77,12 @@ def update_optax(psi,psiSampler,H,state_optimizer,optimizer,tempAnnealing=0.,ren
         
         psi.set_parameters(params)
     if flag_retEnt:
+
+        if tempAnnealing<1e-12:
+            Entropy = jVMC.util.SampledObs((-2.) * psi_logPsi.real, psi_p)
+            Ent_mean = Entropy.mean()[0]
+            Ent_var = Entropy.var()[0]
+        
         return Emean.real,Evar,state_optimizer,n_p, n_grad,success,Ent_mean,Ent_var
     return Emean.real,Evar,state_optimizer,n_p, n_grad,success
 
