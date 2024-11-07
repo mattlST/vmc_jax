@@ -164,6 +164,8 @@ class gumbel_wrapper(nn.Module):
         kappa = gumbels[0,1]
 
         re_weights = jnp.nan_to_num(jnp.exp(logits[:,0]) /(-jnp.expm1(-jnp.exp(logits[:,0]-kappa))),0)
+        #logits_new = self(samples[:,0,:])
+        #return samples[:,0,:],logits_new,re_weights/jnp.sum(re_weights),kappa
         
         return samples[:,0,:],logits[:,0]*self.net.logProbFactor,re_weights/jnp.sum(re_weights),kappa
         #return samples[:,0,:],logits[:,0],re_weights/jnp.sum(re_weights)

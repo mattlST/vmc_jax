@@ -98,9 +98,22 @@ class particle_conservation_patched(nn.Module):
             x = x - mask ** jnp.inf
             x = log_softmax(x)*self.logProbFactor
             #x *= self.logProbFactor    
-            return (jnp.take_along_axis(x, jnp.expand_dims(s, -1), axis=-1)
-                                    .sum(axis=-2)
-                                    .squeeze(-1))
+            if self.net.flag_phase:
+                y = self.net.embed(y)
+                phase = self.net.PhaseAttention(y)
+                phase = self.net.PhaseHead(phase)
+                # the log-probs according the state
+                return (jnp.take_along_axis(x, jnp.expand_dims(s, -1), axis=-1)
+                                        .sum(axis=-2)
+                                        .squeeze(-1) 
+                                    #    +1.j * phase.squeeze(-1) )
+                        + 1.j * jnp.take_along_axis(phase, jnp.expand_dims(s, -1), axis=-1)
+                                        .sum(axis=-2)
+                                        .squeeze(-1) )
+            else:    
+                return (jnp.take_along_axis(x, jnp.expand_dims(s, -1), axis=-1)
+                                        .sum(axis=-2)
+                                        .squeeze(-1))
     
     def _apply_fun(self, *args,**kwargs):
         return self.net.apply(*args,**kwargs)

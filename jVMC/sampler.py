@@ -219,6 +219,8 @@ class MCSampler:
                 tmpP = self.net.params
                 self.net.set_parameters(parameters)
             configs,coeffs,rescaled_coeffs,kappa = self._get_samples_gen(self.net.parameters, numSamples, multipleOf)
+            coeffs = self.net(configs)
+
             if self.orbit is not None: 
                 coeffs = self.net(configs)
                 re_weights = jnp.nan_to_num(jnp.exp(coeffs) /(-jnp.expm1(-jnp.exp(coeffs-kappa))),0)
