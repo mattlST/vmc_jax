@@ -13,5 +13,6 @@ from jVMC.nets.two_nets_wrapper import *
 from jVMC.nets.target import *
 from jVMC.nets.RWKV import *
 from jVMC.nets.RWKV_patched import *
+from jVMC.nets.RWKV_structure import *
 from jVMC.nets.trafo import *
 from jVMC.nets.gpt_stupid_patched import *

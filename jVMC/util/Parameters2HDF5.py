@@ -67,14 +67,24 @@ class h5SaveParams(object):
             g.create_dataset(key, data=value)
         self.close(f)
 
-    def load_model_params(self, void_params, group_name, verbosity = 0):
+    def load_model_params(self, void_params, group_name, verbosity = 0,flag_attributes=False):
         f = self.open()
         group = f[group_name]
+        try:
+            group_attr = {}
+            for attr in group.attrs.keys():
+                group_attr[attr] = group.attrs[attr]
+            print(group.attrs.keys())
+        except:
+            print("attr not working")
         params = {}
         for (key, value, g) in h5_iterate_nested_dict_load(params,group,verbosity):
             if verbosity > 0: print(f'dataset: {key}: {value}')
             g[key] = value[()]  # Use [()] to get the value as a NumPy array
         self.close(f)
+        if flag_attributes:
+            return flax.serialization.from_state_dict(void_params,params),group_attr
+    
         return flax.serialization.from_state_dict(void_params,params)
     
     def close(self,f):
