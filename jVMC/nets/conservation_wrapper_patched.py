@@ -98,7 +98,7 @@ class particle_conservation_patched(nn.Module):
             x = x - mask ** jnp.inf
             x = log_softmax(x)*self.logProbFactor
             #x *= self.logProbFactor    
-            if hasattr(self.net,"flag_pahse"):
+            if hasattr(self.net,"flag_phase"):
                 if self.net.flag_phase:
                     y = self.net.embed(y)
                     phase = self.net.PhaseAttention(y)
