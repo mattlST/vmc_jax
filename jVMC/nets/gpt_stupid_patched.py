@@ -32,6 +32,14 @@ from jVMC.global_defs import tReal
 import jVMC
 from itertools import product
 
+import jVMC.global_defs as global_defs
+import jVMC.nets.activation_functions as act_funs
+from jVMC.nets.initializers import init_fn_args
+
+from functools import partial
+
+import jVMC.nets.initializers
+
 # Transformer
 
 class _TransformerBlock(Module):

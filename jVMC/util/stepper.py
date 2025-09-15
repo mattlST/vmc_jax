@@ -85,6 +85,7 @@ class Heun:
         if "dt" in rhsArgs:
             dt = rhsArgs["dt"]
         k0 = f(yInitial, t, **rhsArgs, intStep=0)
+        
         y = yInitial + dt * k0
         k1 = f(y, t + dt, **rhsArgs, intStep=1)
         dy0 = 0.5 * dt * (k0 + k1)
@@ -145,6 +146,7 @@ class AdaptiveHeun:
             y = yInitial.copy()
             k0 = f(y, t, **rhsArgs, intStep=0)
             y += dt * k0
+            #print("k0.",k0)
             k1 = f(y, t + dt, **rhsArgs, intStep=1)
             dy0 = 0.5 * dt * (k0 + k1)
 

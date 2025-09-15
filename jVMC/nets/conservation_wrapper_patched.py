@@ -98,10 +98,17 @@ class particle_conservation_patched(nn.Module):
             x = x - mask ** jnp.inf
             x = log_softmax(x)*self.logProbFactor
             #x *= self.logProbFactor    
-            if hasattr(self.net,"flag_pahse"):
+            if hasattr(self.net,"flag_phase"):
                 if self.net.flag_phase:
                     y = self.net.embed(y)
-                    phase = self.net.PhaseAttention(y)
+                    if hasattr(self.net.PhaseAttention,"__len__"):
+                        # compute the phase in the auotregressive style
+                        # phase = nn.gelu(self.PhaseNeck(y[-1]))
+                        phase = self.net.PhaseAttention[0](y)
+                        for i in range(1,self.net.num_layers_phase):
+                            phase = self.net.PhaseAttention[i](phase) 
+                    else:
+                        phase = self.net.PhaseAttention(y)
                     phase = self.net.PhaseHead(phase)
                     # the log-probs according the state
                     return (jnp.take_along_axis(x, jnp.expand_dims(s, -1), axis=-1)
@@ -111,10 +118,9 @@ class particle_conservation_patched(nn.Module):
                             + 1.j * jnp.take_along_axis(phase, jnp.expand_dims(s, -1), axis=-1)
                                             .sum(axis=-2)
                                             .squeeze(-1) )
-            else:    
-                return (jnp.take_along_axis(x, jnp.expand_dims(s, -1), axis=-1)
-                                        .sum(axis=-2)
-                                        .squeeze(-1))
+            return (jnp.take_along_axis(x, jnp.expand_dims(s, -1), axis=-1)
+                                    .sum(axis=-2)
+                                    .squeeze(-1))
     
     def _apply_fun(self, *args,**kwargs):
         return self.net.apply(*args,**kwargs)

@@ -289,8 +289,8 @@ class _TransformerBlock(Module):
 
 class CpxRWKV_2d(nn.Module):
     # Main
-    L1: int = 1 # system size1
-    L2: int = 1 # system size2
+    Lx: int = 1 # system size1
+    Ly: int = 1 # system size2
     LHilDim: int = 2
     patch_size: int = 1
     hidden_size: int = 8
@@ -312,9 +312,14 @@ class CpxRWKV_2d(nn.Module):
     # init variance
     init_variance: float = 0.1
     flag_phase :bool =  False
+    num_layers_phase: int = 1
+
     __name__: str = "RWKV"
 
     def setup(self):
+        self.L1 = self.Lx
+        self.L2 = self.Ly
+        
         self.L = self.L1* self.L2
         # set up patching
         if self.patch_size>1:
@@ -374,7 +379,7 @@ class CpxRWKV_2d(nn.Module):
                                     kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"),param_dtype=self.dtype)
             # self.PhaseHead = nn.Dense(1, use_bias=False,name="PhaseHead",
             #                         kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"),param_dtype=self.dtype)
-            self.PhaseAttention = _TransformerBlock(self.embedding_size, self.num_heads, self.dtype, self.init_variance)
+            self.PhaseAttention = [_TransformerBlock(self.embedding_size, self.num_heads, self.dtype, self.init_variance) for i in range(self.num_layers_phase)]
 
     def __call__(self, s: Array, block_states: Array = None, output_state: bool = False) -> Array:
         # the helper method allows to use nn.jit with static_argnames
@@ -490,7 +495,9 @@ class CpxRWKV_2d(nn.Module):
         # compute the phase in the auotregressive style
         # phase = nn.gelu(self.PhaseNeck(y[-1]))
         if self.flag_phase:
-            phase = self.PhaseAttention(y)
+            phase = self.PhaseAttention[0](y)
+            for i in range(1,self.num_layers_phase):
+                phase = self.PhaseAttention[i](phase)
             phase = self.PhaseHead(phase)
             # the log-probs according the state
             return (take_along_axis(x, expand_dims(s, -1), axis=-1)

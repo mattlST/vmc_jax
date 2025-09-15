@@ -23,8 +23,8 @@ def transform_helper(x, rhsPrefactor, makeReal):
     return makeReal((-rhsPrefactor) * x)
 
 
-class TDVP:
-    """ This class provides functionality to solve a time-dependent variational principle (TDVP).
+class ADVP:
+    """ This class provides functionality to solve a time-dependent variational principle (ADVP).
 
     With the force vector
 
@@ -72,7 +72,7 @@ class TDVP:
         * ``diagonalizeOnDevice``: Choose whether to diagonalize :math:`S` on GPU or CPU.
     """
 
-    def __init__(self, sampler, snrTol=2, pinvTol=1e-14, pinvCutoff=1e-8, makeReal='imag', rhsPrefactor=1.j, diagonalShift=0., diagonalScale=0., crossValidation=False, diagonalizeOnDevice=True):
+    def __init__(self, sampler, snrTol=2, pinvTol=1e-14, pinvCutoff=1e-8, makeReal='real', rhsPrefactor=1, diagonalShift=0., diagonalScale=0., crossValidation=False, diagonalizeOnDevice=True):
         self.sampler = sampler
         self.snrTol = snrTol
         self.pinvTol = pinvTol
@@ -135,15 +135,23 @@ class TDVP:
 
         return self.S
 
-    def get_tdvp_equation(self, Eloc, gradients):
-
+    def get_advp_equation(self, Vloc, Eloc, Eloc_ab, gradients):
         self.ElocMean = Eloc.mean()[0]
         self.ElocVar = Eloc.var()[0]
+        self.VlocMean = Vloc.mean()[0]
+        self.VlocVar = Vloc.var()[0]
 
-        self.F0 = (-self.rhsPrefactor) * gradients.covar(Eloc).ravel()
+        self.F0 = (self.rhsPrefactor) * gradients.covar(Vloc).ravel()
         F = self.makeReal(self.F0)
-
-        self.S0 = gradients.covar()
+        # minus sign removed: F = self.makeReal(-self.F0)
+        self.S1 = gradients.covar() * self.ElocMean
+        ###
+        #self.S2 = gradients.covar()
+        
+        #self.S2 = ((self.p[:,None]*Eloc_ab)[0].T@gradients[0].conj()).T
+        self.S2 = gradients.covar(Eloc_ab)
+        
+        self.S0 = -self.S1 + self.S2
         S = self.makeReal(self.S0)
 
         if self.diagonalShift> 1e-10 or self.diagonalScale > 1e-10:
@@ -151,8 +159,8 @@ class TDVP:
 
         return S, F
 
-    def get_sr_equation(self, Eloc, gradients):
-        return self.get_tdvp_equation(Eloc, gradients, rhsPrefactor=1.)
+    def get_sr_equation(self, Eloc, Eloc_ab, gradients):
+        return self.get_advp_equation(Eloc,Eloc_ab, gradients, rhsPrefactor=1.)
 
     def _transform_to_eigenbasis(self, S, F):
         
@@ -174,9 +182,9 @@ class TDVP:
 
         self.VtF = jnp.dot(jnp.transpose(jnp.conj(self.V)), F)
 
-    def _get_snr(self, Eloc, gradients):
+    def _get_snr(self, Vloc, gradients):
 
-        EO = gradients.covar_data(Eloc).transform(
+        EO = gradients.covar_data(Vloc).transform(
                         linearFun = jnp.transpose(jnp.conj(self.V)),
                         nonLinearFun=self.trafo_helper
                     )
@@ -184,14 +192,17 @@ class TDVP:
 
         self.snr = jnp.sqrt(jnp.abs(mpi.globNumSamples * (jnp.conj(self.VtF) * self.VtF) / self.rhoVar)).ravel()
 
-    def solve(self, Eloc, gradients):
-        # Get TDVP equation from MC data
-        self.S, F = self.get_tdvp_equation(Eloc, gradients)
-        F.block_until_ready()
+    def solve(self, Eloc, Eloc_ab, Vloc, gradients):
 
+        # Get TDVP equation from MC data
+        #def get_advp_equation(self, Vloc, Eloc, gradients,sampleGradients_prime,matEl_Eprime):
+
+        self.S,F = self.get_advp_equation(Vloc,Eloc,Eloc_ab, gradients)
+        F.block_until_ready()
+        self.F = F
         # Transform TDVP equation to eigenbasis and compute SNR
         self._transform_to_eigenbasis(self.S, F) #, Fdata)
-        self._get_snr(Eloc, gradients)
+        self._get_snr(Vloc, gradients)
 
         # Discard eigenvalues below numerical precision
         self.invEv = jnp.where(jnp.abs(self.ev / self.ev[-1]) > 1e-14, 1. / self.ev, 0.)
@@ -206,8 +217,8 @@ class TDVP:
 
             if not isinstance(self.sampler, jVMC.sampler.ExactSampler):
                 # Construct a soft cutoff based on the SNR
-                regularizer *= 1. / (1. + (self.snrTol / self.snr)**6)
-
+                #regularizer *= 1. / (1. + (self.snrTol / self.snr)**6)
+                pass
             pinvEv = self.invEv * regularizer
 
             residual = jnp.linalg.norm((pinvEv * self.ev - jnp.ones_like(pinvEv)) * self.VtF) / F_norm
@@ -220,7 +231,7 @@ class TDVP:
 
         return jnp.dot(self.S0, v)
 
-    def __call__(self, netParameters, t, *, psi, hamiltonian, **rhsArgs):
+    def __call__(self, netParameters, t, *, psi, hamiltonian,hamiltonianGradOp,perturbation, **rhsArgs):
         """ For given network parameters this function solves the TDVP equation.
 
         This function returns :math:`\\dot\\theta=S^{-1}F`. Thereby an instance of the ``TDVP`` class is a suited
@@ -270,22 +281,43 @@ class TDVP:
         # Get sample
         start_timing(outp, "sampling")
         sampleConfigs, sampleLogPsi, p = self.sampler.sample(numSamples=numSamples)
+        self.sampleConfigs = sampleConfigs*1
+        self.sampleLogPsi = sampleLogPsi*1.
+        self.p = p*1.
+        self.p = mpi.gather(self.p)
+        
+
+
         stop_timing(outp, "sampling", waitFor=sampleConfigs)
 
         # Evaluate local energy
         start_timing(outp, "compute Eloc")
+        
+
+        Eloc_ab = hamiltonianGradOp.get_O_loc(sampleConfigs, psi, sampleLogPsi, 0)
+        Eloc_ab = SampledObs( Eloc_ab, p)
+
         Eloc = hamiltonian.get_O_loc(sampleConfigs, psi, sampleLogPsi, t)
         stop_timing(outp, "compute Eloc", waitFor=Eloc)
         Eloc = SampledObs( Eloc, p)
 
+        #Eval local perturbation
+        Vloc = perturbation.get_O_loc(sampleConfigs, psi, sampleLogPsi, t)
+        Vloc = SampledObs( Vloc, p)
+
+
         # Evaluate gradients
         start_timing(outp, "compute gradients")
         sampleGradients = psi.gradients(sampleConfigs)
+        self.sampleGradients = sampleGradients
+        self.sampleGradients = mpi.gather(self.sampleGradients)
+
         stop_timing(outp, "compute gradients", waitFor=sampleGradients)
         sampleGradients = SampledObs( sampleGradients, p)
 
         start_timing(outp, "solve TDVP eqn.")
-        update, solverResidual, pinvCutoff = self.solve(Eloc, sampleGradients)
+
+        update, solverResidual, pinvCutoff = self.solve(Eloc,Eloc_ab,Vloc, sampleGradients)
         stop_timing(outp, "solve TDVP eqn.")
 
         if outp is not None:
@@ -314,7 +346,7 @@ class TDVP:
                     Eloc2 = Eloc.subset(start=1, step=2)
                     sampleGradients2 = sampleGradients.subset(start=1, step=2)
                     update_1, _, _ = self.solve(Eloc1, sampleGradients1)
-                    S2, F2 = self.get_tdvp_equation(Eloc2, sampleGradients2)
+                    S2, F2 = self.get_advp_equation(Eloc2, sampleGradients2)
 
                     validation_tdvpErr = self._get_tdvp_error(update_1)
                     update, solverResidual, _ = self.solve(Eloc, sampleGradients)
@@ -325,6 +357,6 @@ class TDVP:
                     self.metaData["tdvp_residual_cross_validation_ratio"] = self.crossValidationFactor_residual
                     self.metaData["tdvp_error_cross_validation_ratio"] = self.crossValidationFactor_tdvpErr
 
-                    self.S, _ = self.get_tdvp_equation(Eloc, sampleGradients)
+                    self.S, _ = self.get_advp_equation(Eloc, sampleGradients)
 
         return update

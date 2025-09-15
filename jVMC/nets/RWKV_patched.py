@@ -271,9 +271,9 @@ class _TransformerBlock(Module):
         )(
             x,
             x,
-            mask=make_causal_mask(
-                zeros((x.shape[-2]), self.paramDType), dtype=self.paramDType
-            ),
+            #mask=make_causal_mask(
+            #    zeros((x.shape[-2]), self.paramDType), dtype=self.paramDType
+            #),
         )
         y = Sequential(
             [
@@ -294,6 +294,7 @@ class CpxRWKV_patched(nn.Module):
     patch_size: int = 1
     hidden_size: int = 8
     num_heads: int = 1
+    offset: float = 1e-16
     dtype: type = tReal
     # time/channel mixing
     num_layers: int = 1
@@ -311,6 +312,7 @@ class CpxRWKV_patched(nn.Module):
     # init variance
     init_variance: float = 0.1
     flag_phase :bool =  False
+    num_layers_phase: int = 1
     __name__: str = "RWKV"
 
     def setup(self):
@@ -357,7 +359,7 @@ class CpxRWKV_patched(nn.Module):
                                     kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"),param_dtype=self.dtype)
             # self.PhaseHead = nn.Dense(1, use_bias=False,name="PhaseHead",
             #                         kernel_init=nn.initializers.variance_scaling(self.init_variance,mode="fan_in",distribution="truncated_normal"),param_dtype=self.dtype)
-            self.PhaseAttention = _TransformerBlock(self.embedding_size, self.num_heads, self.dtype, self.init_variance)
+            self.PhaseAttention = [_TransformerBlock(self.embedding_size, self.num_heads, self.dtype, self.init_variance) for i in range(self.num_layers_phase)]
 
     def __call__(self, s: Array, block_states: Array = None, output_state: bool = False) -> Array:
         # the helper method allows to use nn.jit with static_argnames
@@ -393,7 +395,7 @@ class CpxRWKV_patched(nn.Module):
         # the neck precedes the head
         x = nn.gelu(self.neck(y))
         # the head tops the neck
-        x = self.head(x)
+        x = self.head(x) +self.offset
         if self.lin_out:
             # necessery: positive activation for the probabilities with some regularization
             x = nn.elu(x) + 1. + 1e-8
@@ -413,7 +415,10 @@ class CpxRWKV_patched(nn.Module):
         # compute the phase in the auotregressive style
         # phase = nn.gelu(self.PhaseNeck(y[-1]))
         if self.flag_phase:
-            phase = self.PhaseAttention(y)
+            phase = self.PhaseAttention[0](y)
+            for i in range(1,self.num_layers_phase):
+                phase = self.PhaseAttention[i](phase)
+
             phase = self.PhaseHead(phase)
             # the log-probs according the state
             return (take_along_axis(x, expand_dims(s, -1), axis=-1)

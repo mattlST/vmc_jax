@@ -16,3 +16,4 @@ from jVMC.nets.RWKV_patched import *
 from jVMC.nets.RWKV_structure import *
 from jVMC.nets.trafo import *
 from jVMC.nets.gpt_stupid_patched import *
+from jVMC.nets.fock_state import *
