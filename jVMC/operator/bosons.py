@@ -7,7 +7,7 @@ import numpy as np
 from functools import partial
 from jVMC.global_defs import tCpx
 from jVMC.operator import BranchFreeOperator, scal_opstr
-
+from itertools import product
 opDtype = tCpx
 
 
@@ -151,6 +151,38 @@ def BoseHubbard_Hamiltonian1D(L,J,U,lDim=2,mu=0,V=0):
         if np.linalg.norm(V)>1e-10:
             hamiltonian1D.add(scal_opstr(V[l], (number(l,lDim), number((l + 1) % L,lDim))))
     return hamiltonian1D
+
+
+
+def BoseHubbard_Hamiltonian1D_momentum(L,J,U,lDim=2,mu=0,V=0):
+    """
+    L: number of sites
+    J: next-neighbour hopping
+    U: interaction
+    mu: chemical potentials
+    V: non-local next-neighbour interaction
+    """
+    if not hasattr(mu, "__len__"):
+        mu = [mu]*L
+    if not hasattr(V, "__len__"):
+        V = [V]*L    
+    hamiltonian1D = BranchFreeOperator(lDim=lDim)
+    for l in range(L):    
+        hamiltonian1D.add(scal_opstr(-2.*J*jnp.cos(2*np.pi*l/L)-U/2., (number(l,lDim),)))
+
+        for m,n in product(range(L),repeat=2):
+            o = (m+n-l)%L
+            if o<0:
+                o+=L
+            hamiltonian1D.add(scal_opstr(U/L, (create(m,lDim), create(n,lDim), destroy(o,lDim), destroy(l,lDim))))
+        if np.linalg.norm(mu)>1e-10:
+            #hamiltonian1D.add(scal_opstr(mu[l], (number(l,lDim ),) ))
+            raise NotImplementedError("mu in momentum space not implemented yet")
+        if np.linalg.norm(V)>1e-10:
+            #hamiltonian1D.add(scal_opstr(V[l], (number(l,lDim), number((l + 1) % L,lDim))))
+            raise NotImplementedError("V in momentum space not implemented yet")
+    return hamiltonian1D
+
 def BoseHubbard_Hamiltonian1D_obc(L,J,U,lDim=2,mu=0,V=0):
     """
     L: number of sites
@@ -313,32 +345,6 @@ def propose_hopping_nn(key, s, info,particles,L):
     
     return s
 
-
-
-def BoseHubbard_Hamiltonian1D(L,J,U,lDim=2,mu=0,V=0):
-    """
-    L: number of sites
-    J: next-neighbour hopping
-    U: interaction
-    mu: chemical potentials
-    V: non-local next-neighbour interaction
-    """
-    if not hasattr(mu, "__len__"):
-        mu = [mu]*L
-    if not hasattr(V, "__len__"):
-        V = [V]*L    
-    hamiltonian1D = BranchFreeOperator(lDim=lDim)
-    for l in range(L):    
-        hamiltonian1D.add(scal_opstr(-J, (create(l,lDim), destroy((l + 1) % L,lDim))))
-        hamiltonian1D.add(scal_opstr(-J, (create((l+1)%L,lDim), destroy((l),lDim))))
-        
-        hamiltonian1D.add(scal_opstr(U/2., (number(l,lDim ),number(l,lDim )) ))
-        hamiltonian1D.add(scal_opstr(-U/2., (number(l,lDim ),) ))
-        if np.linalg.norm(mu)>1e-10:
-            hamiltonian1D.add(scal_opstr(mu[l], (number(l,lDim ),) ))
-        if np.linalg.norm(V)>1e-10:
-            hamiltonian1D.add(scal_opstr(V[l], (number(l,lDim), number((l + 1) % L,lDim))))
-    return hamiltonian1D
 
 def interactionTerm(L,lDim=2):
     iTerm = BranchFreeOperator(lDim=lDim)

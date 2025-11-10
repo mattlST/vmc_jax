@@ -38,20 +38,10 @@ def sorting_gumble(sample,logits,gumbel,states):
 class gumbel_wrapper(nn.Module):
     """
     Wrapper module for symmetrization.
-    This is a wrapper module for the incorporation of lattice symmetries. 
-    The given plain ansatz :math:`\\psi_\\theta` is symmetrized as
-
-        :math:`\\Psi_\\theta(s)=\\frac{1}{|\\mathcal S|}\\sum_{\\tau\\in\\mathcal S}\\psi_\\theta(\\tau(s))`
-
-    where :math:`\\mathcal S` denotes the set of symmetry operations (``orbit`` in our nomenclature).
-
-    Initialization arguments:
-        * ``orbit``: orbits which define the symmetry operations (instance of ``util.symmetries.LatticeSymmetry``)
-        * ``net``: Flax module defining the plain ansatz.
-        * ``avgFun``: Different choices for the details of averaging.
-
+    This is a wrapper module for the incorporation of gumbel MC sampling (sampling without repetition). 
+   
     """
-    #orbit: LatticeSymmetry
+    
     net: callable
     is_gumbel = True
 
@@ -91,6 +81,8 @@ class gumbel_wrapper(nn.Module):
         #jax.debug.print("inputt: {x}",x=inputt)
 
         #jax.debug.print("inputt[pos]: {x}",x=inputt[:,position])
+        
+        ### particle conserving net 
         if self.is_particle:
             cumsum = jnp.sum(inputt+jnp.abs(inputt))//2
             #if self.net.net.__name__=="GPT":
