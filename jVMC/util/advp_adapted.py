@@ -149,7 +149,7 @@ class ADVP:
         #self.S2 = gradients.covar()
         
         #self.S2 = ((self.p[:,None]*Eloc_ab)[0].T@gradients[0].conj()).T
-        self.S2 = gradients.covar(Eloc_ab)
+        self.S2 = gradients.covar(Eloc_ab) + gradients.mean()[:,None].conj()*Eloc_ab.mean()[None,:]
         
         self.S0 = -self.S1 + self.S2
         S = self.makeReal(self.S0)
