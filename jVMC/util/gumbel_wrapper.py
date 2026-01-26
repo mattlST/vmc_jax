@@ -10,14 +10,16 @@ from jax import Array, vmap, jit
 
 @jit
 def sorting_gumble(sample,logits,gumbel,states):
-    indexes = jnp.argsort((-gumbel),axis=None)#.reshape(shape_gumbel)
+
     numSamples = sample.shape[0]
     LocalHilDim = sample.shape[1]
     L = sample.shape[2]
+
+    indexes = jnp.argsort((-gumbel),axis=None) # only take the most likely probabilities --> cutoff after  numSamples
     indexes_states = (indexes // LocalHilDim)[:numSamples]
     sample = sample.reshape(-1,L)[indexes]
     sample = sample.reshape(LocalHilDim,numSamples,L)
-    sample = jnp.swapaxes(sample,0,1)
+    sample = jnp.swapaxes(sample,0,1) # some shenanigans to select the samples correctly 
     
     logits = logits.ravel()[indexes]
     logits = logits.reshape(LocalHilDim,numSamples).T
@@ -26,7 +28,7 @@ def sorting_gumble(sample,logits,gumbel,states):
     gumbel = gumbel.reshape(LocalHilDim,numSamples).T
     vals, treedef  = jax.tree_util.tree_flatten(states)
 
-    vals_ordered = [v[indexes_states] for v in vals]
+    vals_ordered = [v[indexes_states] for v in vals] # more shenanigans to select the right states for the network...
     states = jax.tree_util.tree_unflatten(treedef,vals_ordered)
     
     return sample,logits,gumbel,states
@@ -52,12 +54,6 @@ class gumbel_wrapper(nn.Module):
         if not "sample" in dir(self.net):
             raise NotImplemented('Gumbel requires autoregressive network')
 
-        # if hasattr(self.net, "patch_size"):
-        #     if self.net.patch_size>1:
-        #         raise Exception(NotImplemented,"wap wup schup")
-        # else:
-        #     self.patch_size = 1
-
 
         
     def __post_init__(self):
@@ -75,30 +71,22 @@ class gumbel_wrapper(nn.Module):
         #new samples with (0,..,LocalHilDim-1) at position
         #sample = jnp.array([sample[0].at[position].set(l) for l in jnp.arange(self.LocalHilDim)])
         #right shifted input
-        #inputt = jnp.array([jnp.pad(sample[0,:-1],(1,0))])
         logitnew = jnp.zeros_like(logits)
         sample = jnp.array([sample[0].at[position].set(l) for l in jnp.arange(self.LocalHilDim)])
         #right shifted input
         inputt = jnp.array([jnp.pad(sample[0,:-1],(1,0))])
 
-        #jax.debug.print("position: {x}",x=position)
-        #jax.debug.print("inputt: {x}",x=inputt)
-
-        #jax.debug.print("inputt[pos]: {x}",x=inputt[:,position])
-        
-        ## not     
+        #get next conditional probabilities
         logitnew, next_states = self(inputt[:,position],block_states = states, output_state=True)
-        #jax.debug.print("logits new: {x}",x=logitnew)
+        #calculate new updated "total" cond. probabilities
         logitnew = logits[0] + logitnew 
-        
+        # gumbel "noise"
         gumbelnew = logitnew + jrnd.gumbel(key[0],shape=(self.LocalHilDim,)) 
-        
         Z = jnp.nanmax(gumbelnew)
         gumbelnew = jnp.nan_to_num(-jnp.log(
             jnp.exp(-gumbel[0])-jnp.exp(-Z)+jnp.exp(-gumbelnew) 
             ),nan=-jnp.inf)
 
-        #gumbelnew = gumbelnew
         return sample, logitnew, gumbelnew, next_states
     
     def sample(self, numSamples: int, key) -> Array:
@@ -112,6 +100,10 @@ class gumbel_wrapper(nn.Module):
             A batch of system configurations.
         """
         
+        if numSamples >= (self.LocalHilDim**self.L):
+            raise RuntimeError("number of samples higher than the Hilbert space")
+            # Unique samples not possible is the Hilbert space is smaller than the number of samples 
+            # This if-condition catches the edge case in order to avoid undefined behavior  
         
         # split the samples
         keys = jrnd.split(key, (self.net.L))
@@ -139,7 +131,7 @@ class gumbel_wrapper(nn.Module):
         res,_ = self._scanning_fn(init_carry,(keys[1:],jnp.arange(1,self.net.L)))
         samples, logits,gumbels,_ = res
         
-        kappa = gumbels[0,1] # first non-chosen configuration
+        kappa = gumbels[0,1] # first non-chosen configuration used to estimate reweighting
 
         re_weights = jnp.nan_to_num(jnp.exp(logits[:,0]) /(-jnp.expm1(-jnp.exp(logits[:,0]-kappa))),0)
 
@@ -150,13 +142,12 @@ class gumbel_wrapper(nn.Module):
              variable_broadcast='params',
              split_rngs={'params': False})
     def _scanning_fn(self, carry, key):
-        position = key[1]
         sample = carry[0]
-        #jax.debug.print("{x}", x=sample)
-
         logits = carry[1]
         gumbel = carry[2]
         states = carry[3]
+
+        position = key[1] # (lattice 0 ... system size)
         keys = jrnd.split(key[0],carry[0].shape[0])
         keys = jnp.expand_dims(keys,-2)
 
