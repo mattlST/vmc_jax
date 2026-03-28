@@ -290,7 +290,7 @@ class CpxRWKV(nn.Module):
         # the helper method allows to use nn.jit with static_argnames
         return self.forward_with_state(s, block_states, output_state)
 
-    @partial(nn.jit, static_argnums=3)
+    #@partial(nn.jit, static_argnums=3)
     def forward_with_state(self, s: Array, block_states: Array = None,  output_state: bool = False) -> Array:
         
         if self.one_hot:

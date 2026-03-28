@@ -1,6 +1,7 @@
 import os 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 ## only one one gpu if more than one gpu is visible
+##         if mpi.rank == 0:
 
 import unittest
 
