@@ -49,7 +49,7 @@ class TestMC(unittest.TestCase):
 
         L = 4
         for lDim in [2,3,4]:
-            print(lDim)
+            print(f"Testing lDim: {lDim}")
             # Set up variational wave function
             rwkv = nets.CpxRWKV(L=4, LocalHilDim=lDim, hidden_size=4,num_heads = 3, num_layers = 4,embedding_size = 4)
             net = jVMC.util.gumbel_wrapper(rwkv)
